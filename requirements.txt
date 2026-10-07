@@ -1,0 +1,23 @@
+# Day06 新员工助手（多 Agent）— 依赖清单
+#
+# 版本由本项目 P1 的 `uv add` 实际解析结果钉死（uv 0.11.30 / Python 3.13.3，2026-10-07 实跑）。
+# 本仓库的 .venv 由 uv 创建，内部没有 pip：
+#   课件 §5.3 的 `python -m pip install -r requirements.txt` 在本仓库会失败。
+#   请使用 `uv add` / `uv sync` / `uv run`。
+#
+# 完整传递依赖见 uv.lock；此处只钉直接依赖。
+
+beautifulsoup4==4.15.0
+chromadb==1.5.9
+langchain==1.4.3
+langchain-chroma==1.1.0
+langchain-huggingface==1.2.2
+langchain-openai==1.6.7
+langgraph==1.2.14
+pillow==12.3.0
+pypdf==6.19.0
+pypdfium2==5.14.0
+python-docx==1.2.0
+python-dotenv==1.2.4
+rapidocr-onnxruntime==1.4.4
+sentence-transformers==6.1.0
