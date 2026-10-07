@@ -1,0 +1,128 @@
+{
+  "dataset_name": "day05_knowledge_documents",
+  "dataset_version": "1.0",
+  "company_name": "星桥科技有限公司",
+  "documents": [
+    {
+      "document_id": "KB-PUB-001",
+      "path": "public/day05_public_company_profile.md",
+      "title": "公司介绍与办公指南",
+      "file_type": "markdown",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["北京总部的财务部在哪一层？", "账号和 VPN 问题应该联系哪个部门？"]
+    },
+    {
+      "document_id": "KB-PUB-002",
+      "path": "public/day05_public_new_employee_faq.txt",
+      "title": "新员工常见问题",
+      "file_type": "txt",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["VPN 登录成功后是不是可以访问所有系统？", "设备申请成功是否等于已经发放？"]
+    },
+    {
+      "document_id": "KB-PUB-003",
+      "path": "public/day05_public_employee_handbook.docx",
+      "title": "员工手册",
+      "file_type": "docx",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "document_text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["核心协作时段是什么时间？", "员工发现疑似钓鱼消息应该怎样处理？"]
+    },
+    {
+      "document_id": "KB-PUB-004",
+      "path": "public/day05_public_device_request_policy.pdf",
+      "title": "办公设备申请与审批制度",
+      "file_type": "pdf",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "pdf_text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["设备申请需要填写哪些信息？", "审批通过后为什么还不能说设备已经发放？"]
+    },
+    {
+      "document_id": "KB-PUB-005",
+      "path": "public/day05_public_systems_quickstart.html",
+      "title": "常用系统与账号使用指南",
+      "file_type": "html",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "html_text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["首次登录需要完成哪些检查？", "提交账号问题时不应该提供哪些信息？"]
+    },
+    {
+      "document_id": "KB-PUB-006",
+      "path": "public/day05_public_expense_guide_scanned.pdf",
+      "title": "费用报销填写说明扫描件",
+      "file_type": "pdf",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "ocr_required",
+      "contains_text_layer": false,
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["报销申请需要填写哪四类信息？", "票据模糊时应该怎样处理？"]
+    },
+    {
+      "document_id": "KB-PUB-007",
+      "path": "public/day05_public_office_map.png",
+      "title": "北京总部十层办公区导览图",
+      "file_type": "png",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "multimodal_required",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["从电梯出来怎样到达会议室 A？", "打印区位于茶水区的哪个方向？"]
+    },
+    {
+      "document_id": "KB-PUB-008",
+      "path": "public/day05_public_security_poster.jpg",
+      "title": "账号与数据安全宣传海报",
+      "file_type": "jpeg",
+      "access_scope": "public",
+      "allowed_roles": ["employee", "hr"],
+      "parser_mode": "ocr_or_multimodal",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["海报列出了哪些禁止操作？", "发现异常登录后应该按什么顺序处理？"]
+    },
+    {
+      "document_id": "KB-HR-001",
+      "path": "hr/day05_hr_recruitment_probation_sop.docx",
+      "title": "招聘录用与试用期操作规范",
+      "file_type": "docx",
+      "access_scope": "hr_only",
+      "allowed_roles": ["hr"],
+      "parser_mode": "document_text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["发送录用通知前需要完成哪些检查？", "试用期中期回顾需要保留哪些记录？"]
+    },
+    {
+      "document_id": "KB-HR-002",
+      "path": "hr/day05_hr_employee_relations_guide.pdf",
+      "title": "员工关系问题处理指引",
+      "file_type": "pdf",
+      "access_scope": "hr_only",
+      "allowed_roles": ["hr"],
+      "parser_mode": "pdf_text",
+      "version": "1.0",
+      "status": "active",
+      "suggested_questions": ["收到员工申诉后第一步应该做什么？", "哪些情况需要立即升级给法务？"]
+    }
+  ]
+}

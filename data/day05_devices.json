@@ -1,0 +1,138 @@
+{
+  "dataset_name": "day05_devices",
+  "dataset_version": "1.1",
+  "devices": [
+    {
+      "device_id": "DEV-LAPTOP-STD",
+      "name": "标准办公笔记本",
+      "category": "电脑",
+      "description": "适用于日常办公、文档处理和在线会议。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 1,
+      "request_requirements": "填写主要工作用途。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-LAPTOP-PRO",
+      "name": "高性能开发笔记本",
+      "category": "电脑",
+      "description": "适用于软件开发、数据处理和复杂设计任务。",
+      "eligible_roles": ["employee"],
+      "eligible_department_ids": ["DEPT-RND", "DEPT-IT", "DEPT-PRODUCT"],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明岗位、开发工具或性能需求。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-MONITOR-24",
+      "name": "24 英寸显示器",
+      "category": "显示设备",
+      "description": "适用于需要双屏办公的岗位。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 2,
+      "request_requirements": "说明双屏办公场景。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-MONITOR-27",
+      "name": "27 英寸高分辨率显示器",
+      "category": "显示设备",
+      "description": "适用于设计、研发和内容制作。",
+      "eligible_roles": ["employee"],
+      "eligible_department_ids": ["DEPT-PRODUCT", "DEPT-RND", "DEPT-MARKETING"],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明设计、研发或内容制作需求。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-HEADSET",
+      "name": "办公耳机",
+      "category": "会议设备",
+      "description": "适用于线上会议和客户沟通。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明会议或客户沟通用途。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-KEYBOARD-MOUSE",
+      "name": "键盘鼠标套装",
+      "category": "办公外设",
+      "description": "适用于固定工位的日常办公。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明新员工配发或原设备故障情况。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-WEBCAM",
+      "name": "高清摄像头",
+      "category": "会议设备",
+      "description": "适用于远程培训、客户演示和线上会议。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明远程会议或演示频率。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-DRAWING-TABLET",
+      "name": "绘图板",
+      "category": "设计设备",
+      "description": "适用于交互设计、视觉设计和内容制作。",
+      "eligible_roles": ["employee"],
+      "eligible_department_ids": ["DEPT-PRODUCT", "DEPT-MARKETING"],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明具体设计任务。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-MOBILE-TEST",
+      "name": "移动测试设备",
+      "category": "测试设备",
+      "description": "适用于移动端产品开发和兼容性测试。",
+      "eligible_roles": ["employee"],
+      "eligible_department_ids": ["DEPT-RND", "DEPT-PRODUCT"],
+      "max_quantity_per_request": 2,
+      "request_requirements": "填写测试项目和预计使用周期。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-DOCK",
+      "name": "笔记本扩展坞",
+      "category": "办公外设",
+      "description": "用于连接显示器、网线和多种外设。",
+      "eligible_roles": ["employee", "hr"],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 1,
+      "request_requirements": "说明需要连接的设备。",
+      "is_requestable": true
+    },
+    {
+      "device_id": "DEV-DESK-STAND",
+      "name": "升降桌",
+      "category": "办公家具",
+      "description": "当前教学目录中暂不开放个人申请。",
+      "eligible_roles": [],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 0,
+      "request_requirements": "不可申请。",
+      "is_requestable": false
+    },
+    {
+      "device_id": "DEV-ERGONOMIC-CHAIR",
+      "name": "人体工学椅",
+      "category": "办公家具",
+      "description": "由行政部统一配置，不接受个人设备申请。",
+      "eligible_roles": [],
+      "eligible_department_ids": [],
+      "max_quantity_per_request": 0,
+      "request_requirements": "不可申请。",
+      "is_requestable": false
+    }
+  ]
+}

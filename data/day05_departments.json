@@ -1,0 +1,16 @@
+{
+  "dataset_name": "day05_departments",
+  "dataset_version": "1.1",
+  "departments": [
+    {"department_id": "DEPT-HR", "name": "人力资源部", "responsibilities": ["招聘", "劳动合同", "员工证明", "员工异动", "设备申请审批"], "office_location": "北京总部 8 层", "public_contact": "hr-service@example.com"},
+    {"department_id": "DEPT-FINANCE", "name": "财务部", "responsibilities": ["费用报销", "发票审核", "付款进度", "差旅费用"], "office_location": "北京总部 9 层", "public_contact": "finance-service@example.com"},
+    {"department_id": "DEPT-IT", "name": "信息技术部", "responsibilities": ["软件账号", "公司邮箱", "VPN", "办公网络", "设备技术支持"], "office_location": "北京总部 10 层", "public_contact": "it-service@example.com"},
+    {"department_id": "DEPT-PRODUCT", "name": "产品部", "responsibilities": ["产品规划", "用户调研", "需求分析", "产品设计"], "office_location": "北京总部 10 层", "public_contact": "product@example.com"},
+    {"department_id": "DEPT-SALES", "name": "销售部", "responsibilities": ["客户沟通", "商务报价", "合同跟进", "销售支持"], "office_location": "上海研发中心 5 层", "public_contact": "sales@example.com"},
+    {"department_id": "DEPT-RND", "name": "研发部", "responsibilities": ["软件开发", "系统架构", "质量测试", "技术评审"], "office_location": "上海研发中心 6 层", "public_contact": "rnd@example.com"},
+    {"department_id": "DEPT-MARKETING", "name": "市场部", "responsibilities": ["品牌宣传", "市场活动", "内容运营", "媒体合作"], "office_location": "北京总部 9 层", "public_contact": "marketing@example.com"},
+    {"department_id": "DEPT-CS", "name": "客户成功部", "responsibilities": ["客户培训", "产品使用咨询", "续约跟进", "客户反馈"], "office_location": "上海研发中心 5 层", "public_contact": "customer-success@example.com"},
+    {"department_id": "DEPT-LEGAL", "name": "法务部", "responsibilities": ["合同审核", "合规咨询", "知识产权", "法律风险"], "office_location": "北京总部 8 层", "public_contact": "legal@example.com"},
+    {"department_id": "DEPT-ADMIN", "name": "行政部", "responsibilities": ["门禁卡", "会议室", "办公用品", "工位与公共设施"], "office_location": "北京总部 8 层", "public_contact": "admin@example.com"}
+  ]
+}

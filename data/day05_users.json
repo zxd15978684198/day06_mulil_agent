@@ -1,0 +1,470 @@
+{
+  "dataset_name": "day05_users",
+  "dataset_version": "2.1",
+  "users": [
+    {
+      "user_id": "USR-001",
+      "username": "zhang_wei",
+      "display_name": "张伟",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-PRODUCT",
+      "job_title": "产品助理",
+      "expertise": [
+        "需求整理",
+        "用户反馈"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "zhang.wei@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-002",
+      "username": "li_na",
+      "display_name": "李娜",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-SALES",
+      "job_title": "销售助理",
+      "expertise": [
+        "客户资料",
+        "销售支持"
+      ],
+      "office_location": "上海研发中心 5 层",
+      "office_contact": "li.na@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-003",
+      "username": "wang_fang",
+      "display_name": "王芳",
+      "role": "hr",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-HR",
+      "job_title": "HR 专员",
+      "expertise": [
+        "招聘流程",
+        "设备申请审批"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "wang.fang@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-004",
+      "username": "chen_hao",
+      "display_name": "陈浩",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-IT",
+      "job_title": "IT 服务工程师",
+      "expertise": [
+        "软件账号",
+        "公司邮箱",
+        "VPN"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "chen.hao@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-005",
+      "username": "liu_yang",
+      "display_name": "刘洋",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-FINANCE",
+      "job_title": "财务助理",
+      "expertise": [
+        "报销材料",
+        "发票整理"
+      ],
+      "office_location": "北京总部 9 层",
+      "office_contact": "liu.yang@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-006",
+      "username": "zhao_min",
+      "display_name": "赵敏",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-RND",
+      "job_title": "后端开发工程师",
+      "expertise": [
+        "Python",
+        "接口开发"
+      ],
+      "office_location": "上海研发中心 6 层",
+      "office_contact": "zhao.min@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-007",
+      "username": "zhou_jie",
+      "display_name": "周杰",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-MARKETING",
+      "job_title": "内容运营专员",
+      "expertise": [
+        "内容发布",
+        "活动文案"
+      ],
+      "office_location": "北京总部 9 层",
+      "office_contact": "zhou.jie@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-008",
+      "username": "sun_yue",
+      "display_name": "孙悦",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-CS",
+      "job_title": "客户成功顾问",
+      "expertise": [
+        "客户培训",
+        "产品使用咨询"
+      ],
+      "office_location": "上海研发中心 5 层",
+      "office_contact": "sun.yue@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-009",
+      "username": "wu_ting",
+      "display_name": "吴婷",
+      "role": "employee",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-LEGAL",
+      "job_title": "法务助理",
+      "expertise": [
+        "合同归档",
+        "合规材料"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "wu.ting@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "USR-010",
+      "username": "zheng_kai",
+      "display_name": "郑凯",
+      "role": "hr",
+      "login_enabled": true,
+      "account_status": "active",
+      "department_id": "DEPT-HR",
+      "job_title": "HR 主管",
+      "expertise": [
+        "员工异动",
+        "审批管理"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "zheng.kai@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-011",
+      "username": null,
+      "display_name": "何静",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-HR",
+      "job_title": "员工服务专员",
+      "expertise": [
+        "劳动合同",
+        "员工证明"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "he.jing@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-012",
+      "username": null,
+      "display_name": "林峰",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-IT",
+      "job_title": "账号管理员",
+      "expertise": [
+        "账号开通",
+        "权限申请",
+        "密码重置"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "lin.feng@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-013",
+      "username": null,
+      "display_name": "郭强",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-IT",
+      "job_title": "网络工程师",
+      "expertise": [
+        "办公网络",
+        "VPN",
+        "无线网络"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "guo.qiang@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-014",
+      "username": null,
+      "display_name": "唐雪",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-FINANCE",
+      "job_title": "费用审核专员",
+      "expertise": [
+        "费用报销",
+        "差旅费用",
+        "发票审核"
+      ],
+      "office_location": "北京总部 9 层",
+      "office_contact": "tang.xue@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-015",
+      "username": null,
+      "display_name": "许晨",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-FINANCE",
+      "job_title": "付款专员",
+      "expertise": [
+        "付款进度",
+        "供应商付款"
+      ],
+      "office_location": "北京总部 9 层",
+      "office_contact": "xu.chen@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-016",
+      "username": null,
+      "display_name": "高远",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-PRODUCT",
+      "job_title": "产品经理",
+      "expertise": [
+        "产品规划",
+        "需求评审"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "gao.yuan@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-017",
+      "username": null,
+      "display_name": "罗兰",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-PRODUCT",
+      "job_title": "交互设计师",
+      "expertise": [
+        "交互原型",
+        "设计规范"
+      ],
+      "office_location": "北京总部 10 层",
+      "office_contact": "luo.lan@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-018",
+      "username": null,
+      "display_name": "曹宇",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-SALES",
+      "job_title": "销售运营专员",
+      "expertise": [
+        "商务报价",
+        "销售数据"
+      ],
+      "office_location": "上海研发中心 5 层",
+      "office_contact": "cao.yu@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-019",
+      "username": null,
+      "display_name": "马莉",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-SALES",
+      "job_title": "商务经理",
+      "expertise": [
+        "合同跟进",
+        "客户沟通"
+      ],
+      "office_location": "上海研发中心 5 层",
+      "office_contact": "ma.li@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-020",
+      "username": null,
+      "display_name": "杜鹏",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-RND",
+      "job_title": "技术负责人",
+      "expertise": [
+        "系统架构",
+        "技术评审"
+      ],
+      "office_location": "上海研发中心 6 层",
+      "office_contact": "du.peng@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-021",
+      "username": null,
+      "display_name": "叶青",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-RND",
+      "job_title": "测试工程师",
+      "expertise": [
+        "质量测试",
+        "缺陷管理"
+      ],
+      "office_location": "上海研发中心 6 层",
+      "office_contact": "ye.qing@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-022",
+      "username": null,
+      "display_name": "程晨",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-MARKETING",
+      "job_title": "品牌经理",
+      "expertise": [
+        "品牌宣传",
+        "媒体合作"
+      ],
+      "office_location": "北京总部 9 层",
+      "office_contact": "cheng.chen@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-023",
+      "username": null,
+      "display_name": "袁欣",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-CS",
+      "job_title": "客户成功经理",
+      "expertise": [
+        "客户反馈",
+        "续约跟进"
+      ],
+      "office_location": "上海研发中心 5 层",
+      "office_contact": "yuan.xin@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-024",
+      "username": null,
+      "display_name": "潘宁",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-LEGAL",
+      "job_title": "法务经理",
+      "expertise": [
+        "合同审核",
+        "知识产权"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "pan.ning@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-025",
+      "username": null,
+      "display_name": "秦涛",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-ADMIN",
+      "job_title": "行政专员",
+      "expertise": [
+        "门禁卡",
+        "工位",
+        "办公用品"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": "qin.tao@example.com",
+      "is_public": true
+    },
+    {
+      "user_id": "EMP-026",
+      "username": null,
+      "display_name": "宋妍",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-HR",
+      "job_title": "员工关系经理",
+      "expertise": [
+        "员工关系",
+        "内部调查"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": null,
+      "is_public": false
+    },
+    {
+      "user_id": "EMP-027",
+      "username": null,
+      "display_name": "魏然",
+      "role": null,
+      "login_enabled": false,
+      "account_status": null,
+      "department_id": "DEPT-LEGAL",
+      "job_title": "合规专员",
+      "expertise": [
+        "内部合规",
+        "法律风险"
+      ],
+      "office_location": "北京总部 8 层",
+      "office_contact": null,
+      "is_public": false
+    }
+  ]
+}
