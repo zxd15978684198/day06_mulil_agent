@@ -66,6 +66,10 @@
 | C3 | 相册图（海报）由 `ocr_or_multimodal` 走 OCR **升级为走多模态** | 执行中实测决定（阶段 2） | 视觉输出是 OCR 的严格超集；`parser_mode_actual` 记 `vision_multimodal` |
 | C4 | 引入独立多模态接口（`VISION_*` 配置，当前为 GLM-5.3-Flash） | 用户指示 | §4.1 K5 原前提「`MODEL_NAME` 支持图像输入」被取代；manifest 记 `provenance` |
 | C5 | `data/` `knowledge/` `vector_store/` 由**仓库根**移入 **`src/` 下（包外）** | 用户指示（「都归属与后端板块」） | 决策 D4、§5.1 目录图与说明、§5.2 的 `paths.py` 片段同步改写；`paths.py` 改为 `PACKAGE_DIR`/`SRC_ROOT` 两级推导；索引需重建一次（manifest 记录绝对路径） |
+| C6 | P4 通过信号拆成两层：「零条 HR 证据」留在检索层（阶段 3 验收），「并说明无法确认」**归到 P6/P8/P9 的 Agent 层** | 用户指示（「归到后面验，修改计划」） | §6 P4 通过信号改写；§9 新增第 11 条记录 `no_evidence` 分支不可达这一实测结论 |
+| C7 | §4.2 B8 的「张伟选到不对口的设备会正当失败」**勘误** | 阶段 4 实测 | 4 台限部门设备的名单**全部含 `DEPT-PRODUCT`**，张伟全部对口；改为用 `li_na`(DEPT-SALES) / `chen_hao`(DEPT-IT) 验证部门不对口 |
+| C8 | `find_public_employee` 增加**部门名称**匹配 | 阶段 4 实测（只匹配 `department_id` 时，传「信息技术部」返回 0 人，会让 §8 第 2 条链路断在第二步） | 匹配字段加入部门中文名 |
+| C9 | 身份取不到时 **fail-closed**（新增 `_require_identity`） | 阶段 4 自检发现 | 原实现用 `getattr` 取身份，Context 缺失/形式不符时会**静默产出 `applicant_user_id: ""` 的申请**；现改为 `permission_denied` |
 
 > C1/C2 是本文档自身的变更；C3/C4 已登记在阶段 2 的验收汇报里，此处汇总备查。
 
@@ -375,8 +379,8 @@ _append_request(candidate, status="pending", requested_at=now_iso())
 
 > `eligible_department_ids: []` 表示**无部门限制**，**不是**禁止申请（Day05 附录 A.3）。
 >
-> **实测分布**：12 台设备里 8 台是 `eligible_department_ids: []`（无限制），另 4 台有限制且同时限定 `eligible_roles: ["employee"]`（不含 hr）—— `DEV-LAPTOP-PRO`、`DEV-MONITOR-27`、`DEV-DRAWING-TABLET`、`DEV-MOBILE-TEST`。
-> 张伟属 `DEPT-PRODUCT`，**选到不对口的设备会正当失败**，这不是 bug。§8 第 7 条的创建验收建议用 `DEV-MONITOR-24`（无部门限制、`max_quantity_per_request: 2`）最稳。
+> **实测分布**：12 台设备里 8 台是 `eligible_department_ids: []`（无限制，其中 2 台 `is_requestable: false`），另 4 台有限制且同时限定 `eligible_roles: ["employee"]`（不含 hr）—— `DEV-LAPTOP-PRO`（RND/IT/PRODUCT）、`DEV-MONITOR-27`（PRODUCT/RND/MARKETING）、`DEV-DRAWING-TABLET`（PRODUCT/MARKETING）、`DEV-MOBILE-TEST`（RND/PRODUCT）。
+> ⚠️ **勘误（阶段 4 实测）**：本计划早先写「张伟属 `DEPT-PRODUCT`，选到不对口的设备会正当失败」——**这是错的**：上述 4 台的部门名单**全部包含 `DEPT-PRODUCT`**，张伟对它们**全部对口**。要验证「部门不对口被拒」，须换一个不在名单里的部门，例如 `li_na`（`DEPT-SALES`）申请 `DEV-LAPTOP-PRO`，或 `chen_hao`（`DEPT-IT`）申请 `DEV-MONITOR-27`。§8 第 7 条的创建验收仍建议用 `DEV-MONITOR-24`（无部门限制、`max_quantity_per_request: 2`）最稳。
 
 #### B9 `login_as()`
 
@@ -588,7 +592,8 @@ data/*.json ──►┌┴─────────────────�
 
 - **目标**：按 K8 实现 `search_knowledge` —— **检索阶段**就按角色过滤。
 - **指令模板**：「检索时用 `where={f"allow_{role}": True}` 过滤。**不要**先召回再在 Python 里剔除无权 chunk —— 课件 D5§9.2 明确：无权正文一旦进入模型上下文，边界已被突破。**不要**让模型决定检索范围。**不要**在零命中时让模型用常识补答。」
-- **通过信号**：同一问题「试用期中期回顾需要保留哪些记录？」，`role=employee` 返回**零条 HR 证据**并说明无法确认；`role=hr` 返回 `KB-HR-001` 证据与来源。
+- **通过信号（检索层，阶段 3 验收）**：同一问题「试用期中期回顾需要保留哪些记录？」，`role=employee` 返回**零条 HR 证据**；`role=hr` 返回 `KB-HR-001` 证据与来源。
+- **通过信号（Agent 层，归 P6/P8/P9 验）**：原句里的「**并说明无法确认**」由知识 Agent 的**回答**承担，检索层不产出自然语言结论 —— 检索 Tool 只返回结构化证据，唯一会说「无法确认」的是 `no_evidence` 分支，而该分支**只在零命中时触发**（实测：非空索引上，即使问题与知识库无关，相似度检索仍会返回 k 条最近邻，故不触发）。对应 §8 第 3 条的后半句。
 - **翻车信号**：employee 召回到 `KB-HR-*` → 权限闸门失效（**安全边界缺陷，最高优先级**）。若出现，先修 K2 的元数据形态，不要靠 Prompt 遮掩。
 - **来源**：`课件D5§3.6`、`课件D5§9.2`、`课件D6§12.1`、`K2`、`K8`
 
@@ -699,6 +704,7 @@ data/*.json ──►┌┴─────────────────�
 8. `konwledge_base.py`（拼写错误的空文件）应删除，新建 `knowledge_base.py`（位于 `src/personal_assistant/`）—— 课件全程按 `knowledge_base` 导入。
 9. **src 布局（D4）是对课件 §5.1 的有意偏离。** 后果是课件里逐段照抄的代码**不再是字面意义上的复制** —— `multi_agent.py` 与 `main.py` 的 import 块、`build_model()` 的 `PROJECT_DIR` 都必须改写（§5.2）。授课时若要讲「直接复制课件代码」，需要同步说明这两处改动，否则学生照抄会撞上 §5.2 描述的静默失效。
 10. **§5.2 的 `.env` 静默失效是本文档新发现的坑**，课件与既有计划都没有提到。src 布局是触发条件，但根因是 `load_dotenv` 找不到文件时不报错 —— 值得在授课时作为「失败静默」的实例讲一次。
+11. **K8 的 `no_evidence` 分支在非空索引上不可达**（阶段 3 实测）。向量检索对**任何**查询都会返回 k 条最近邻，所以「零命中」不会因「问题与知识库无关」而发生 —— 该分支实际只覆盖「索引为空」或「按角色过滤后无候选」两种情况。后果：员工问 HR 专属问题时，模型仍会拿到 5 条弱相关的公开 chunk（实测 score 1.04–1.17），「回答无法确认」只能靠知识 Agent 的提示词约束（见 C6）。**若 P9 的 §8 第 3 条守不住，再回来考虑相关性阈值，不要靠改 Prompt 遮掩权限问题。**
 
 ---
 
