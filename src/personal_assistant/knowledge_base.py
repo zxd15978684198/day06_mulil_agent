@@ -101,31 +101,43 @@ POSTER_VISION_PROMPT = """你在为公司内部宣传海报生成可检索的文
 TEMP_WORKAROUND_DIR = PROJECT_ROOT / ".tmp"
 
 
-def _is_writable_dir(directory: Path) -> bool:
+def _probe_writable(directory: Path) -> str | None:
+    """可写则返回 None，否则返回**失败原因**（写不进去 / 删不掉要分开说）。"""
     try:
         directory.mkdir(parents=True, exist_ok=True)
         probe = directory / f".write_probe_{os.getpid()}"
         probe.write_text("x", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        return f"创建探测文件失败：{type(exc).__name__}: {exc}"
+    try:
         probe.unlink()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
+    except Exception as exc:  # noqa: BLE001
+        # 能写但删不掉：chromadb 的 SQLite 需要建/删临时文件，所以同样算不可用
+        return f"能写但删不掉探测文件：{type(exc).__name__}: {exc}"
+    return None
 
 
-def _unwritable_tempdir() -> str | None:
-    """返回第一个不可写的 `TEMP`/`TMP` 值；都可用则返回 None。"""
+def _is_writable_dir(directory: Path) -> bool:
+    return _probe_writable(directory) is None
+
+
+def _unwritable_tempdir() -> tuple[str, str] | None:
+    """返回第一个不可写的 `TEMP`/`TMP` 值及其原因；都可用则返回 None。"""
     for key in ("TEMP", "TMP"):
         raw = (os.environ.get(key) or "").strip()
-        if raw and not _is_writable_dir(Path(raw)):
-            return raw
+        if not raw:
+            continue
+        reason = _probe_writable(Path(raw))
+        if reason is not None:
+            return raw, reason
     return None
 
 
 def ensure_writable_tempdir() -> str | None:
-    """入口脚本调用：`%TEMP%` 不可写时改用项目内的 `.tmp/`，并**打印可见提示**。
+    """入口脚本调用：挑一个**确实可写**的临时目录；都不行就在入口直接失败。
 
     **为什么需要**：chromadb 1.5.9 的 Rust SQLite 在建立连接时使用操作系统
-    临时目录（Windows 上是 `GetTempPathW`）。若该目录不可写，建库会直接失败：
+    临时目录（Windows 上是 `GetTempPathW`）。若该目录不可写，建库与检索都会失败：
 
         chromadb.errors.InternalError:
         error returned from database: (code: 14) unable to open database file
@@ -134,13 +146,51 @@ def ensure_writable_tempdir() -> str | None:
     回落到当前目录，于是看起来"临时目录没问题"，而 chroma 拿到的仍是 `%TEMP%`。
     所以这里直接探测 `TEMP`/`TMP` 指向的目录。
 
+    候选顺序（**每个都要真的写进去再删掉**，不靠"目录存在"就当作可用）：
+
+    1. `%TEMP%` / `%TMP%` —— 正常机器直接命中，本函数什么都不做也不打印；
+    2. 项目内的 `.tmp/`（跨运行复用）；
+    3. 由**本进程新建**的目录 —— 创建者一定拥有写权限，用于绕开历史遗留的异常权限。
+
     正常机器上 `%TEMP%` 可写，本函数**什么都不做、什么都不打印**（返回 None）。
     """
     if _unwritable_tempdir() is None:
         return None
 
-    TEMP_WORKAROUND_DIR.mkdir(parents=True, exist_ok=True)
-    resolved = str(TEMP_WORKAROUND_DIR)
+    tried: list[str] = []
+    for candidate in (TEMP_WORKAROUND_DIR,):
+        reason = _probe_writable(candidate)
+        if reason is None:
+            return _use_tempdir(candidate, tried)
+        tried.append(f"{candidate} —— {reason}")
+
+    # 兜底：新建一个属于本进程的目录（创建者必然可写）
+    import tempfile
+
+    try:
+        fresh = Path(tempfile.mkdtemp(prefix="day06_tmp_", dir=str(PROJECT_ROOT)))
+    except Exception as exc:  # noqa: BLE001
+        tried.append(f"mkdtemp(dir=PROJECT_ROOT) —— {type(exc).__name__}: {exc}")
+    else:
+        reason = _probe_writable(fresh)
+        if reason is None:
+            return _use_tempdir(fresh, tried)
+        tried.append(f"{fresh}（新建后仍不可用）—— {reason}")
+
+    raise RuntimeError(
+        "找不到可写的临时目录，chromadb 无法工作。已尝试：\n  - "
+        + "\n  - ".join(tried)
+        + f"\n当前 TEMP={os.environ.get('TEMP')!r} TMP={os.environ.get('TMP')!r}\n"
+        "请把 TEMP / TMP 指向一个可写目录，或用 `uv run python build_index.py` / "
+        "`uv run python main.py` 这类入口脚本运行（它们会调用本函数）。\n"
+        "提示：用 `icacls <目录>` 看权限，若出现 "
+        "'Mandatory Label\\Low Mandatory Level' 说明该目录带低完整性标签，"
+        "普通进程可能无法写入。"
+    )
+
+
+def _use_tempdir(directory: Path, tried: list[str]) -> str:
+    resolved = str(directory)
     os.environ["TEMP"] = resolved
     os.environ["TMP"] = resolved
     os.environ.setdefault("TMPDIR", resolved)
@@ -150,12 +200,14 @@ def ensure_writable_tempdir() -> str | None:
 
 def _require_usable_tempdir() -> None:
     """库侧检查：临时目录不可写时给出可操作的错误，而不是让 chroma 抛晦涩异常。"""
-    bad = _unwritable_tempdir()
-    if bad is None:
+    broken = _unwritable_tempdir()
+    if broken is None:
         return
+    bad, reason = broken
     raise RuntimeError(
-        f"系统临时目录不可写（{bad}），chromadb 会报 (code: 14) unable to open "
-        f"database file。请通过入口脚本运行（build_index.py 建库、main.py 对话，"
+        f"系统临时目录不可写（{bad}）：{reason}\n"
+        f"chromadb 会报 (code: 14) unable to open database file。"
+        f"请通过入口脚本运行（build_index.py 建库、main.py 对话，"
         f"两者启动时都会调用 ensure_writable_tempdir()），"
         f"或先把 TEMP / TMP 指向一个可写目录。"
     )

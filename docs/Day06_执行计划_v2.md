@@ -70,6 +70,8 @@
 | C7 | §4.2 B8 的「张伟选到不对口的设备会正当失败」**勘误** | 阶段 4 实测 | 4 台限部门设备的名单**全部含 `DEPT-PRODUCT`**，张伟全部对口；改为用 `li_na`(DEPT-SALES) / `chen_hao`(DEPT-IT) 验证部门不对口 |
 | C8 | `find_public_employee` 增加**部门名称**匹配 | 阶段 4 实测（只匹配 `department_id` 时，传「信息技术部」返回 0 人，会让 §8 第 2 条链路断在第二步） | 匹配字段加入部门中文名 |
 | C9 | 身份取不到时 **fail-closed**（新增 `_require_identity`） | 阶段 4 自检发现 | 原实现用 `getattr` 取身份，Context 缺失/形式不符时会**静默产出 `applicant_user_id: ""` 的申请**；现改为 `permission_denied` |
+| C10 | §6 P6 通过信号的「互不重叠」**勘误** | 阶段 5 实测 | 课件 §7.5 把 `query_device_requests` 同时挂在两个专业 Agent 上，唯一重叠即它；判定改为「并集覆盖 7 个 + 除该工具外无重叠」 |
+| C11 | **R1 结论：成立** | 阶段 5 第一步实测 | langchain 1.4.3 / langgraph 1.2.14 下，嵌套 `interrupt()` 能暂停到父图，同一 `thread_id` 的 `Command(resume=...)` 能恢复并让内层业务 Tool 完成写入。**§11.4 的两条预案均不需要启用** |
 
 > C1/C2 是本文档自身的变更；C3/C4 已登记在阶段 2 的验收汇报里，此处汇总备查。
 
@@ -611,7 +613,8 @@ data/*.json ──►┌┴─────────────────�
 - **产出**：`src/personal_assistant/multi_agent.py` 的 §7、§8 部分。
 - **来源**：`multi_agent.py` 的 §7、§8 **课件逐段给全，照抄**。两个注意点：①§9.2 重复出现的 import 要去重合并到文件顶部；②课件里的 `from business_tools import (...)` 与 `PROJECT_DIR = os.path.dirname(...)` **必须按 §5.2 改写**（前者换成全包名，后者删掉改走 `paths.py`）。
 - **指令模板**：「三个专业 Agent 各自只挂本职 Tool。**不要**给知识 Agent 挂审批 Tool。**不要**把专业 Agent 的整份消息历史回传 Supervisor。**不要**用宽泛 `try/except` 包住 Agent Tool —— 内层 `interrupt()` 的暂停信号会被吞掉。」
-- **通过信号**：打印三个 Agent 各自的 Tool 名称集合，互不重叠且并集覆盖 7 个 Tool；`specialist_result` 输出可 `json.loads`。
+- **通过信号**：打印三个 Agent 各自的 Tool 名称集合，**并集覆盖 7 个业务 Tool**；`specialist_result` 输出可 `json.loads`。
+  > ⚠️ **勘误（阶段 5 实测）**：原文写「互不重叠」，但课件 §7.5 把 `query_device_requests` **同时**挂在员工服务 Agent 与 HR Agent 上（数据权限由工具内部按角色决定范围），因此唯一的重叠是它，且是设计如此。判定改为「并集覆盖 7 个 + 除该工具外无重叠」。
 - **翻车信号**：Agent Tool 里出现 `try/except Exception` → 人工确认必然失效。
 - **来源**：`课件D6§7.5`、`课件D6§8.3`
 
