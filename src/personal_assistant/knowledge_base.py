@@ -39,6 +39,7 @@ from langchain_chroma import Chroma  # noqa: E402
 from langchain_core.documents import Document  # noqa: E402
 from langchain_huggingface import HuggingFaceEmbeddings  # noqa: E402
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: E402
+from langchain.tools import ToolRuntime, tool  # noqa: E402
 
 # --------------------------------------------------------------------------
 # 路径与常量
@@ -154,8 +155,9 @@ def _require_usable_tempdir() -> None:
         return
     raise RuntimeError(
         f"系统临时目录不可写（{bad}），chromadb 会报 (code: 14) unable to open "
-        f"database file。请用 `python build_index.py` 运行（该入口会在启动时调用 "
-        f"ensure_writable_tempdir()），或先把 TEMP / TMP 指向一个可写目录。"
+        f"database file。请通过入口脚本运行（build_index.py 建库、main.py 对话，"
+        f"两者启动时都会调用 ensure_writable_tempdir()），"
+        f"或先把 TEMP / TMP 指向一个可写目录。"
     )
 
 
@@ -774,3 +776,109 @@ def build_vector_store() -> dict[str, Any]:
         "documents": document_summaries,
         "failures": failures,
     }
+
+
+# --------------------------------------------------------------------------
+# K8 检索：search_company_knowledge（P4 —— 安全边界）
+#
+# 权限闸门在**检索阶段**执行：Chroma 的 where 是「必须匹配」语义，
+# 用 {"allow_<role>": True} 过滤后，**元数据缺该键的 chunk 不会进入候选集**
+# （fail-closed）。绝不能「先无过滤召回、再在 Python 里剔除」—— 课件 D5§9.2：
+# 无权正文一旦进入模型上下文，边界就已经被突破。
+# --------------------------------------------------------------------------
+
+SEARCH_K = 5
+
+# 向量库句柄缓存：Embedding 模型加载较慢，一次会话内复用。
+# 注意这是**只读索引**（不是 B3 所说的业务 JSON），重建索引后需新进程才生效。
+_vector_store_cache: Chroma | None = None
+
+
+def _open_vector_store() -> Chroma:
+    """打开只读的 Chroma 索引（懒加载并复用）。"""
+    global _vector_store_cache
+    if _vector_store_cache is None:
+        # 临时目录由入口脚本适配；库侧只检查，不可用就给可操作的错误
+        _require_usable_tempdir()
+        embeddings, _model_name = _build_embeddings()
+        _vector_store_cache = Chroma(
+            collection_name=COLLECTION_NAME,
+            embedding_function=embeddings,
+            persist_directory=str(VECTOR_STORE_DIR),
+        )
+    return _vector_store_cache
+
+
+def _evidence_of(hit: Document, score: float, rank: int) -> dict[str, Any]:
+    """把一条检索命中整理成结构化证据（来源由程序生成，不让模型编）。"""
+    metadata = hit.metadata or {}
+    return {
+        "rank": rank,
+        "document_id": metadata.get("document_id", ""),
+        "title": metadata.get("title", ""),
+        "path": metadata.get("path", ""),
+        "chunk_id": metadata.get("chunk_id", ""),
+        "access_scope": metadata.get("access_scope", ""),
+        "score": round(float(score), 4),
+        "content": hit.page_content,
+    }
+
+
+@tool("search_company_knowledge")
+def search_knowledge(query: str, runtime: ToolRuntime) -> str:
+    """检索公司知识库，返回当前登录角色有权访问的文档证据。
+
+    只返回与问题相关的资料片段与来源；如果知识库里没有可依据的资料，
+    会明确返回「无依据」，不要用常识编造公司制度。
+    """
+    context = getattr(runtime, "context", None)
+    role = str(getattr(context, "role", "") or "").strip()
+
+    # 身份只来自 Runtime Context（B2）；角色不在已知集合内一律拒绝
+    if role not in FILTERABLE_ROLES:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "permission_denied",
+                "message": f"当前角色 {role!r} 不能检索公司知识库",
+            },
+            ensure_ascii=False,
+        )
+
+    query = (query or "").strip()
+    if not query:
+        return json.dumps(
+            {"ok": False, "error": "invalid_argument", "message": "query 不能为空"},
+            ensure_ascii=False,
+        )
+
+    # K2 + K8：按角色在**检索阶段**过滤；缺该键的 chunk 不会进入候选集
+    hits = _open_vector_store().similarity_search_with_score(
+        query, k=SEARCH_K, filter={f"allow_{role}": True}
+    )
+    if not hits:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": "no_evidence",
+                "message": "当前知识库中没有可依据的资料，无法确认该问题",
+            },
+            ensure_ascii=False,
+        )
+
+    evidence = [
+        _evidence_of(hit, score, rank)
+        for rank, (hit, score) in enumerate(hits, start=1)
+    ]
+    return json.dumps(
+        {
+            "ok": True,
+            "data": {
+                "role": role,
+                "query": query,
+                "count": len(evidence),
+                "evidence": evidence,
+            },
+        },
+        ensure_ascii=False,
+    )

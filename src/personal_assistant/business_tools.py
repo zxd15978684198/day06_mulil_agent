@@ -6,13 +6,28 @@
 - ``ROLE_PERMISSIONS`` 是课件 Day05 §2.3 的角色权限矩阵；
 - 七个业务 Tool 一律先取 ``runtime.context``，再判断权限。
 
-当前进度：P0（契约冻结）。本文件只定义 ``RunContext`` 与 ``ROLE_PERMISSIONS``，
-业务 Tool 的函数体在 P5 实现。
+进度：
+* **P0 已完成**：``RunContext`` 与 ``ROLE_PERMISSIONS``；
+* **P4 已完成**：检索 Tool —— 实现放在 ``knowledge_base``（K8 的检索逻辑与
+  Chroma 都在那边），这里按 §4.2 的要求把名字 ``search_company_knowledge``
+  导出，使 ``multi_agent`` 的 import 块（9 个名字）成立；
+* **P5 待做**：``login_as()`` 与其余 6 个业务 Tool。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+# §4.2 硬约束：multi_agent.py 从本模块导入 9 个名字。检索 Tool 的实现与
+# Chroma 访问都在 knowledge_base，这里只做名字导出（工具名已由
+# @tool("search_company_knowledge") 固定，函数名保持 knowledge_base.search_knowledge）。
+from personal_assistant.knowledge_base import search_knowledge as search_company_knowledge
+
+__all__ = [
+    "RunContext",
+    "ROLE_PERMISSIONS",
+    "search_company_knowledge",
+]
 
 
 @dataclass(frozen=True)
