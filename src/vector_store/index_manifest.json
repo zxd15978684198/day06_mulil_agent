@@ -1,0 +1,174 @@
+{
+  "built_at": "2026-10-08T08:35:27+08:00",
+  "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "collection_name": "day05_knowledge",
+  "vector_store_path": "E:\\projects\\mutil_agent\\src\\vector_store",
+  "chunking": {
+    "chunk_size": 600,
+    "chunk_overlap": 120,
+    "keep_separator": "end",
+    "separators": [
+      "\n\n",
+      "\n",
+      "。",
+      "；",
+      "！",
+      "？",
+      "，",
+      " ",
+      ""
+    ],
+    "note": "chunk_size / chunk_overlap 是本计划的工程估计，不是课件规定值"
+  },
+  "document_count": 10,
+  "chunk_count": 36,
+  "documents": [
+    {
+      "document_id": "KB-PUB-001",
+      "title": "公司介绍与办公指南",
+      "path": "public/day05_public_company_profile.md",
+      "parser_mode": "text",
+      "parser_mode_actual": "text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 3
+    },
+    {
+      "document_id": "KB-PUB-002",
+      "title": "新员工常见问题",
+      "path": "public/day05_public_new_employee_faq.txt",
+      "parser_mode": "text",
+      "parser_mode_actual": "text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 4
+    },
+    {
+      "document_id": "KB-PUB-003",
+      "title": "员工手册",
+      "path": "public/day05_public_employee_handbook.docx",
+      "parser_mode": "document_text",
+      "parser_mode_actual": "document_text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 6
+    },
+    {
+      "document_id": "KB-PUB-004",
+      "title": "办公设备申请与审批制度",
+      "path": "public/day05_public_device_request_policy.pdf",
+      "parser_mode": "pdf_text",
+      "parser_mode_actual": "pdf_text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 4
+    },
+    {
+      "document_id": "KB-PUB-005",
+      "title": "常用系统与账号使用指南",
+      "path": "public/day05_public_systems_quickstart.html",
+      "parser_mode": "html_text",
+      "parser_mode_actual": "html_text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 3
+    },
+    {
+      "document_id": "KB-PUB-006",
+      "title": "费用报销填写说明扫描件",
+      "path": "public/day05_public_expense_guide_scanned.pdf",
+      "parser_mode": "ocr_required",
+      "parser_mode_actual": "ocr",
+      "is_machine_extracted": true,
+      "provenance": {},
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 2
+    },
+    {
+      "document_id": "KB-PUB-007",
+      "title": "北京总部十层办公区导览图",
+      "path": "public/day05_public_office_map.png",
+      "parser_mode": "multimodal_required",
+      "parser_mode_actual": "vision_multimodal",
+      "is_machine_extracted": true,
+      "provenance": {
+        "machine_reader": "vision_model",
+        "model_name": "glm-5.3-flash",
+        "config_source": "vision"
+      },
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 2
+    },
+    {
+      "document_id": "KB-PUB-008",
+      "title": "账号与数据安全宣传海报",
+      "path": "public/day05_public_security_poster.jpg",
+      "parser_mode": "ocr_or_multimodal",
+      "parser_mode_actual": "vision_multimodal",
+      "is_machine_extracted": true,
+      "provenance": {
+        "machine_reader": "vision_model",
+        "model_name": "glm-5.3-flash",
+        "config_source": "vision"
+      },
+      "allowed_roles": [
+        "employee",
+        "hr"
+      ],
+      "chunk_count": 4
+    },
+    {
+      "document_id": "KB-HR-001",
+      "title": "招聘录用与试用期操作规范",
+      "path": "hr/day05_hr_recruitment_probation_sop.docx",
+      "parser_mode": "document_text",
+      "parser_mode_actual": "document_text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "hr"
+      ],
+      "chunk_count": 5
+    },
+    {
+      "document_id": "KB-HR-002",
+      "title": "员工关系问题处理指引",
+      "path": "hr/day05_hr_employee_relations_guide.pdf",
+      "parser_mode": "pdf_text",
+      "parser_mode_actual": "pdf_text",
+      "is_machine_extracted": false,
+      "provenance": {},
+      "allowed_roles": [
+        "hr"
+      ],
+      "chunk_count": 3
+    }
+  ],
+  "failures": []
+}

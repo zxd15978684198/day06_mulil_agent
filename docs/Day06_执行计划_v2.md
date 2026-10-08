@@ -45,9 +45,30 @@
 ### 交付物
 
 1. `docs/Day06_执行计划_v2.md` —— 本文档
-2. 可运行的 Day06 项目：`knowledge_base.py`、`build_index.py`、`business_tools.py`、`multi_agent.py`、`main.py`、`.env.example`、`requirements.txt`
+2. 可运行的 Day06 项目，**按 src 布局组织**（见下方「结构决策」）：`src/personal_assistant/` 下的 8 个模块 + 根目录两个薄壳入口 + `.env.example` + `requirements.txt`
 3. 已构建的 `vector_store/`（含 `index_manifest.json`）
 4. 一份真实的验收记录：§8 场景逐条的真实路由证据与业务数据快照
+
+### 结构决策：采用 src 布局（决策 D4/D5/D6）
+
+**本项目采用 src 布局（src layout），不用课件的平坦布局。** 可导入代码收进 `src/personal_assistant/`；`data/`、`knowledge/`、`vector_store/` 收在 **`src/` 下、包外**；`.env` 与配置文件留仓库根。布局见 §5.1。
+
+> ⚠️ **这是对课件 §5.1 的有意偏离。** 课件假定所有 `.py` 平铺在项目根、用裸名互相 import（`from knowledge_base import ...`）。改用 src 布局后，**课件里任何逐段照抄的代码，其 import 块与路径常量都必须改写**（改写清单见 §5.2）。
+
+理由：src 布局强迫代码只能 import **已安装的包**，而不是「恰好当前目录下的文件」——换目录运行就不会碰巧成功。同时它把代码与数据物理隔开，而本仓库根目录恰好同时躺着 `knowledge/`（数据目录）和 `konwledge_base.py`（模块），平坦布局的命名歧义在这里是真实存在的。
+
+### 变更记录
+
+| # | 变更 | 发起 | 影响 |
+| --- | --- | --- | --- |
+| C1 | 包名由 `day06_assistant` 改为 **`personal_assistant`**（决策 D5 已同步） | 用户指示 | 本文档全文的包路径与 `python -m` 命令；`src/personal_assistant/`；`[tool.hatch.build.targets.wheel].packages` |
+| C2 | `[project].name` **保持 `mutil-agent` 不变** | 用户指示（「不是项目的名字」） | 仅 `uv pip list` 里的分发名与 import 包名不同名。§5.1 原有的「建议改名对齐」一条据此作废（见该节说明） |
+| C3 | 相册图（海报）由 `ocr_or_multimodal` 走 OCR **升级为走多模态** | 执行中实测决定（阶段 2） | 视觉输出是 OCR 的严格超集；`parser_mode_actual` 记 `vision_multimodal` |
+| C4 | 引入独立多模态接口（`VISION_*` 配置，当前为 GLM-5.3-Flash） | 用户指示 | §4.1 K5 原前提「`MODEL_NAME` 支持图像输入」被取代；manifest 记 `provenance` |
+| C5 | `data/` `knowledge/` `vector_store/` 由**仓库根**移入 **`src/` 下（包外）** | 用户指示（「都归属与后端板块」） | 决策 D4、§5.1 目录图与说明、§5.2 的 `paths.py` 片段同步改写；`paths.py` 改为 `PACKAGE_DIR`/`SRC_ROOT` 两级推导；索引需重建一次（manifest 记录绝对路径） |
+
+> C1/C2 是本文档自身的变更；C3/C4 已登记在阶段 2 的验收汇报里，此处汇总备查。
+
 
 ### 执行方式：分阶段推进 + 逐阶段验收门禁
 
@@ -117,6 +138,9 @@
 | **D1** | 参考实现的用法 | **完全从零，不读取、不参照、不搬运**（§Context 已述代价） |
 | **D2** | 模型凭据 | **本机有可用凭据** → P9 端到端验收可完整执行，交付须含真实路由证据与业务数据快照 |
 | **D3** | 落盘路径 | `docs/Day06_执行计划_v2.md` |
+| **D4** | 项目结构 | **src 布局**：可安装代码在 `src/personal_assistant/`；`data/` `knowledge/` `vector_store/` 收在 `src/` 下、**包外**；`.env` 与配置文件留仓库根（有意偏离课件 §5.1，见 §5.1） |
+| **D5** | 包名 | `personal_assistant` |
+| **D6** | 根目录入口 | 保留 `main.py` 与 `build_index.py` 两个三行薄壳，课件命令与验收口径不变 |
 
 ---
 
@@ -362,6 +386,112 @@ _append_request(candidate, status="pending", requested_at=now_iso())
 
 ## 5. 模块全景
 
+### 5.1 目录布局（src 布局）
+
+**决策 D4 / D5 / D6。** 与课件 §5.1 的平坦布局不同，可导入代码全部收进 `src/`。
+
+```text
+E:\projects\mutil_agent\                 ← PROJECT_ROOT（pyproject.toml、.env 所在）
+├── pyproject.toml                       ← 新增 [build-system]（见下）
+├── README.md                            ← 当前 0 字节，pyproject 引用了它
+├── .gitignore                           ← 已忽略 .venv 与 .env，无需改
+├── .env / .env.example                  ← 运行时配置，留在根
+├── requirements.txt
+├── uv.lock
+├── main.py                              ← 薄壳（3 条语句）→ personal_assistant.main
+├── build_index.py                       ← 薄壳（3 条语句）→ personal_assistant.build_index
+└── src/                                 ← SRC_ROOT
+    ├── personal_assistant/              ← 可安装的代码包（PACKAGE_DIR）
+    │   ├── __init__.py
+    │   ├── __main__.py                  ← 支持 python -m personal_assistant
+    │   ├── paths.py                     ← 路径解析 + 布局断言
+    │   ├── knowledge_base.py
+    │   ├── build_index.py
+    │   ├── business_tools.py
+    │   ├── multi_agent.py
+    │   └── main.py
+    ├── data/                            ← 业务 JSON（唯一可写文件在此）
+    ├── knowledge/                       ← 知识文件 + 权限清单
+    └── vector_store/                    ← Chroma 索引
+```
+
+**为什么数据目录在 `src/` 下、却放在包外**：`data/day05_device_requests.json` 是**运行时会被写入**的文件，`vector_store/` 也是生成物；而包目录是**安装产物** —— 一旦本项目被非可编辑方式装进 site-packages，程序就会往 `.venv/Lib/site-packages/...` 里写业务数据。所以数据收进 `src/`（归属后端板块），但**不放进 `src/personal_assistant/`**，两者物理隔开，由 `paths.py` 统一解析。
+
+**`pyproject.toml` 新增**：
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/personal_assistant"]
+```
+
+> **顺序要求**：先建出 `src/personal_assistant/__init__.py`，**再**加 `[build-system]`。反过来的话 `uv sync` / `uv add` 会因为找不到包直接失败。
+> `[project].name` 保持 `mutil-agent` **不改**（用户指示：只改 `src/` 下的包名，不动项目名）。
+> 代价仅是 `uv pip list` 里的分发名（`mutil-agent`）与 import 的包名（`personal_assistant`）不同名，不影响运行；验收命令一律用**包名**。
+
+### 5.2 路径解析与 import 改写 ⚠️
+
+src 布局有两个必然的破坏点，P1 一次性处理掉。
+
+**（1）跨模块 import 改用全包名。**
+
+| 课件原样 | src 布局下 |
+| --- | --- |
+| `from knowledge_base import build_vector_store` | `from personal_assistant.knowledge_base import build_vector_store` |
+| `from knowledge_base import INDEX_MANIFEST_PATH` | `from personal_assistant.knowledge_base import INDEX_MANIFEST_PATH` |
+| `from business_tools import (RunContext, ...)` | `from personal_assistant.business_tools import (RunContext, ...)` |
+
+**（2）课件用 `__file__` 找 `.env` 的写法会失效，而且是静默失效。**
+
+课件 §7.1 的 `build_model()` 里是：
+
+```python
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(PROJECT_DIR, ".env"), override=False)
+```
+
+搬进 `src/personal_assistant/` 后 `__file__` 指向包目录，`.env` 会被找成 `src/personal_assistant/.env` —— **文件不存在，`load_dotenv` 不报错、只是什么都不加载**，于是 `build_model()` 抛「请在 .env 中配置 MODEL_PROVIDER 和 MODEL_NAME」，而你去检查 `.env` 发现明明写好了。
+
+**所有路径统一由 `paths.py` 提供**，任何模块都不许再自己拼 `__file__`：
+
+```python
+# src/personal_assistant/paths.py
+from pathlib import Path
+
+PACKAGE_DIR = Path(__file__).resolve().parent   # → src/personal_assistant
+SRC_ROOT = PACKAGE_DIR.parent                   # → src
+PROJECT_ROOT = SRC_ROOT.parent                  # → 仓库根（pyproject.toml / .env）
+DATA_DIR = SRC_ROOT / "data"
+KNOWLEDGE_DIR = SRC_ROOT / "knowledge"
+VECTOR_STORE_DIR = SRC_ROOT / "vector_store"
+ENV_PATH = PROJECT_ROOT / ".env"
+
+
+def _assert_layout() -> None:
+    """层级数错或非可编辑安装时，此处 fail fast。"""
+    missing = [p.name for p in (DATA_DIR, KNOWLEDGE_DIR) if not p.is_dir()]
+    if missing:
+        raise RuntimeError(
+            f"项目路径解析错误：{SRC_ROOT} 下找不到 {missing}。"
+            "本项目按 src 布局运行（数据在 src/ 下、包外），"
+            "须以可编辑方式安装（uv sync）并从仓库内运行。"
+        )
+
+
+_assert_layout()
+```
+
+断言的理由：相对层级只在**可编辑安装**（`uv sync` 的默认行为）下正确。若被当成普通 wheel 装进 site-packages，它会指向 `Lib/site-packages` 附近 —— 此时**必须报错，而不是去别的目录找文件**。
+
+> **数据在 `src/` 下是决策 D4 的一部分**：`SRC_ROOT` 由 `PACKAGE_DIR.parent` 得到，所以数据位置随包位置一起确定，不额外依赖 `parents[N]` 的层数假设；加一层目录不会静默走错。
+
+**收益**：路径基于 `__file__` 而非 CWD，因此**从任何目录运行**都能找到 `data/` / `knowledge/` / `.env`。这本身是一条防护性验收（§8 第 20 条）。
+
+### 5.3 数据流
+
 ```
 knowledge/*.{md,txt,html,docx,pdf,png,jpg}
         │
@@ -395,6 +525,8 @@ data/*.json ──►┌┴─────────────────�
 
 **步骤划分依据**：以上数据流链。P2→P3→P4 沿「解析→入库→检索」切，P5 沿「身份→校验→读写→返回」切。
 
+> 图中 `knowledge_base.py` / `business_tools.py` / `multi_agent.py` / `main.py` / `build_index.py` 五个名字，在 src 布局下**都位于 `src/personal_assistant/`**（§5.1）；根目录只留 `main.py` 与 `build_index.py` 两个薄壳。图中保留裸名是为了与课件章节一一对应。
+
 ---
 
 ## 6. 分步实现路径
@@ -407,26 +539,33 @@ data/*.json ──►┌┴─────────────────�
 ### P0 契约冻结 · **Spec**
 
 - **目标**：把 §3 的 `RunContext`、`ROLE_PERMISSIONS`（课件 D5§2.3 已给矩阵）、7 个 Tool 签名、四类数据边界先写成类型与常量，**先于任何实现**。
-- **产出**：`business_tools.py` 顶部的 `RunContext` 与 `ROLE_PERMISSIONS`。
+- **产出**：`src/personal_assistant/business_tools.py` 顶部的 `RunContext` 与 `ROLE_PERMISSIONS`。
 - **指令模板**：「按下面规格定义 `RunContext`（frozen dataclass）与 `ROLE_PERMISSIONS` 常量表。**不要**实现任何 Tool 函数体，**不要**为 `employee` 添加 `review_device_requests` 权限，**不要**把权限挂到用户记录上。」
-- **通过信号**：`uv run python -c "from business_tools import RunContext, ROLE_PERMISSIONS"` 无报错；对 `RunContext` 赋值抛 `FrozenInstanceError`。
+- **通过信号**：`uv run python -c "from personal_assistant.business_tools import RunContext, ROLE_PERMISSIONS"` 无报错；对 `RunContext` 赋值抛 `FrozenInstanceError`。
 - **翻车信号**：出现 `permissions` 字段挂在用户记录上 → 违背课件 D5§2.2「用户记录只保存 `role`」。
 - **来源**：`课件D6§6.1`、`课件D5§2.3`
 
 ### P1 环境与依赖 · **Spec**
 
-- **目标**：装依赖、钉版本、建立 `.env`。
-- **产出**：`requirements.txt`、`.env.example`、`.env`（gitignore）、可用的 `vector_store/`。
-- **指令模板**：「用 `uv add` 添加依赖并把解析出的实际版本写进 `requirements.txt`。**不要**用 `python -m pip`（本 venv 无 pip）。**不要**把 `.env` 提交进 git。**不要**在代码里硬编码 API Key。」
+- **目标**：建出 src 骨架、装依赖、钉版本、建立 `.env`。
+- **产出**：`src/personal_assistant/` 的 `__init__.py` / `__main__.py` / `paths.py`、`pyproject.toml` 的 `[build-system]`、`requirements.txt`、`.env.example`、`.env`（gitignore）。
+- **执行顺序**（**顺序错了会失败**，见 §5.1）：
+  1. 建 `src/personal_assistant/__init__.py`（空文件即可）与 `paths.py`（§5.2）
+  2. `pyproject.toml` 加 `[build-system]` 与 `[tool.hatch.build.targets.wheel]`
+  3. `uv sync` —— 此时本项目应被以**可编辑方式**装上
+  4. `uv add` 逐个添加依赖（每次都会触发一次 sync）
+  5. 建 `.env.example` 与 `.env`
+- **指令模板**：「用 `uv add` 添加依赖并把解析出的实际版本写进 `requirements.txt`。**不要**用 `python -m pip`（本 venv 无 pip）。**不要**把 `.env` 提交进 git。**不要**在代码里硬编码 API Key。**不要**在包模块里用 `__file__` 自己拼路径，一律走 `paths.py`。」
 - **依赖清单**（由 §4 的设计推导，非抄自任何现成文件）：`langchain`、`langchain-openai`、`langgraph`、`langchain-chroma`、`chromadb`、`langchain-huggingface`、`sentence-transformers`、`python-dotenv`、`pypdf`、`pypdfium2`、`python-docx`、`beautifulsoup4`、`rapidocr-onnxruntime`（或等效 RapidOCR 包）、`pillow`。
-- **通过信号**：`uv run python -c "import langchain, langgraph, chromadb"` 成功；`uv pip list` 输出含全部依赖及**实际版本**，并记录进交付物；**并做一次最小模型调用**（`build_model()` 后发一条最简消息）确认真实返回。
+- **通过信号**：`uv run python -c "from personal_assistant.paths import PROJECT_ROOT; print(PROJECT_ROOT)"` 打印出**项目根**（**不是** `...\src` 或 `...\src\personal_assistant`）；`uv pip list` 显示本项目已以可编辑方式安装；`uv run python -c "import langchain, langgraph, chromadb"` 成功；`uv pip list` 输出含全部依赖及**实际版本**，并记录进交付物；**并做一次最小模型调用**（`build_model()` 后发一条最简消息）确认真实返回。
   > 凭据是否可用**至今未经验证**（D2 只是「本机有凭据」这一前提）。**必须在阶段 1 就打通**，不要拖到阶段 6 才发现 `API_KEY` / `BASE_URL` 不通 —— 那时返工面最大。
-- **翻车信号**：`No module named pip` → 误用了 pip；`EMBEDDING_MODEL` 首次下载失败 → 查网络 / HF 镜像。
+- **翻车信号**：`No module named pip` → 误用了 pip；`uv sync` 报找不到包 → `[build-system]` 加在了 `__init__.py` 之前；`PROJECT_ROOT` 打印到 `src` 层 → `parents[2]` 数错了；`EMBEDDING_MODEL` 首次下载失败 → 查网络 / HF 镜像。
 - **来源**：`F§1.4`、`课件D6§5.3`、`K1`、`K6`
 
 ### P2 文档解析 + 权限元数据 · **场景测试**
 
 - **目标**：10 份文件解析成带权限元数据的文本。
+- **产出**：`src/personal_assistant/knowledge_base.py` 的解析层（依赖 `paths.py` 的 `KNOWLEDGE_DIR`）。
 - **要点**：实现 K1 的七条分流路径；K6 的 OCR 标注；K5 的多模态探测；K7 的失败保留。
 - **第一步先做 K5 探测**：用一次最小图像调用确认 `MODEL_NAME` 是否支持图像输入，把结论记下来再决定导览图走哪条路。**不要拖到最后。**
 - **指令模板**：「按清单 `parser_mode` 实现七条解析路径。**不要**用同一个 Loader 硬套所有格式。**不要**在解析失败时静默丢弃文件。**不要**从目录名或文件名推断权限，一律读清单的 `allowed_roles`。**不要**把 OCR 输出当成原始事实。」
@@ -438,7 +577,7 @@ data/*.json ──►┌┴─────────────────�
 ### P3 向量库构建 · **场景测试**
 
 - **目标**：Embedding + Chroma 持久化 + 索引清单。
-- **产出**：`build_index.py`（课件 §5.4 已给全，照抄）、`vector_store/index_manifest.json`。
+- **产出**：`src/personal_assistant/build_index.py`（课件 §5.4 已给全，**import 需改写**）、根目录 `build_index.py` 薄壳、`vector_store/index_manifest.json`。
 - **要点**：实现 K2 的 `allow_<role>` 展开、K3 的切分与抽查、K4 的元数据继承。
 - **指令模板**：「实现 `build_vector_store()` 返回含 `document_count` / `chunk_count` / `vector_store_path` / `embedding_model` 的 dict，让 `build_index.py` 打印真实统计。**不要**把统计数字写成常量。**不要**在索引里丢失权限元数据。**不要**把 `allowed_roles` 原样当 list 塞进 Chroma，它只接受标量（K2）。」
 - **通过信号**：`uv run python build_index.py` 打印四项统计；`index_manifest.json` 存在，数字与 10 份源文件一致；**抽 5 个 chunk 人工核对未被句子中间截断**（K3）。
@@ -464,7 +603,8 @@ data/*.json ──►┌┴─────────────────�
 ### P6 专业 Agent + Agent Tool 包装 · **Spec**
 
 - **目标**：三个专业 Agent + 三个 `@tool` 包装；`specialist_result()` 只回 `{agent, answer, business_tools}`。
-- **来源**：`multi_agent.py` 的 §7、§8 **课件逐段给全，照抄**。唯一注意点：§9.2 重复出现的 import 要去重合并到文件顶部。
+- **产出**：`src/personal_assistant/multi_agent.py` 的 §7、§8 部分。
+- **来源**：`multi_agent.py` 的 §7、§8 **课件逐段给全，照抄**。两个注意点：①§9.2 重复出现的 import 要去重合并到文件顶部；②课件里的 `from business_tools import (...)` 与 `PROJECT_DIR = os.path.dirname(...)` **必须按 §5.2 改写**（前者换成全包名，后者删掉改走 `paths.py`）。
 - **指令模板**：「三个专业 Agent 各自只挂本职 Tool。**不要**给知识 Agent 挂审批 Tool。**不要**把专业 Agent 的整份消息历史回传 Supervisor。**不要**用宽泛 `try/except` 包住 Agent Tool —— 内层 `interrupt()` 的暂停信号会被吞掉。」
 - **通过信号**：打印三个 Agent 各自的 Tool 名称集合，互不重叠且并集覆盖 7 个 Tool；`specialist_result` 输出可 `json.loads`。
 - **翻车信号**：Agent Tool 里出现 `try/except Exception` → 人工确认必然失效。
@@ -473,6 +613,7 @@ data/*.json ──►┌┴─────────────────�
 ### P7 Supervisor + 会话 + 中断恢复 · **Spec** ⚠️ 最高风险
 
 - **目标**：Supervisor 只持有 Agent Tool；按角色裁剪；`UserSession` / `chat()` / `resume()` / `outer_trace()`。
+- **产出**：`src/personal_assistant/multi_agent.py` 的 §9、§10 部分。
 - **来源**：课件 §9–§10 **逐段给全，照抄**。本地查 `ch26-interrupts-time-travel.md`、`ch24-persistence-checkpointers.md`、`ch23-subgraphs.md` 核对 API 契约。
 - **核验点 R1**：Agent Tool 调用的专业 Agent 是否继承父级 Checkpointer 并在一次调用中使用 `interrupt()`。课件 §8.3 自认未验证（`F§1.3`）。
 - **处置预案**（课件 §13 也提到）：若嵌套暂停不成立，把确认提到 Supervisor 外层固定节点 —— 专业 Agent 只返回「待确认载荷」，由 Supervisor 侧的 `interrupt()` 负责暂停与恢复。
@@ -483,8 +624,9 @@ data/*.json ──►┌┴─────────────────�
 
 ### P8 CLI 入口 · **Spec**
 
-- **目标**：`main.py` —— 登录循环、`/logout`、`/quit`、中断交互、路由证据打印。
-- **来源**：课件 §10.3–§10.5 **给全，照抄**。固定字符串（提示语、`/quit`、`/logout`、确认输入集 `{y, yes, 是, 确认}`）照课件原样，验收会断言它们。
+- **目标**：CLI —— 登录循环、`/logout`、`/quit`、中断交互、路由证据打印。
+- **产出**：`src/personal_assistant/main.py`、`src/personal_assistant/__main__.py`（`python -m personal_assistant` 用）、根目录 `main.py` 薄壳。
+- **来源**：课件 §10.3–§10.5 **给全，照抄**。固定字符串（提示语、`/quit`、`/logout`、确认输入集 `{y, yes, 是, 确认}`）照课件原样，验收会断言它们。**`from knowledge_base import INDEX_MANIFEST_PATH` 与 `from multi_agent import (...)` 两处 import 必须按 §5.2 改写。**
 - **指令模板**：「启动时先检查 `INDEX_MANIFEST_PATH` 是否存在，缺失即报错。**不要**让向量库缺失拖到第一次检索才报错。**不要**把「当前会话累计」误报成「本轮」—— 课件 §10.3 明确这是累计证据。」
 - **通过信号**：无索引时立即提示「请先运行 build_index.py」，**不进入登录循环**；每轮打印 Agent Tool 与内层业务 Tool 名称。
 - **翻车信号**：索引缺失到第一次查询才报错；路由证据口径标错。
@@ -492,9 +634,9 @@ data/*.json ──►┌┴─────────────────�
 
 ### P9 端到端验收 · **场景测试**
 
-- **目标**：跑完 §8 的 19 条场景，记录**真实**证据。
+- **目标**：跑完 §8 的 20 条场景，记录**真实**证据。
 - **前置**：D2 已确认本机有可用模型凭据，本步可完整执行。
-- **通过信号**：19 条逐条给出可观察证据；四者（Agent Tool 调用、业务 Tool 调用、最终回答、JSON 实际状态）相互印证。
+- **通过信号**：20 条逐条给出可观察证据；四者（Agent Tool 调用、业务 Tool 调用、最终回答、JSON 实际状态）相互印证。
 - **来源**：`课件D6§12.1`、`课件D6§12.2`、`课件D5§7.2`
 
 ---
@@ -506,6 +648,7 @@ data/*.json ──►┌┴─────────────────�
 | **R1** | **嵌套 `interrupt()` 与 Checkpointer 继承**。课件 §8.3 自认未验证（`F§1.3`）。 | 设备申请与 HR 审批的人工确认流程**整体作废** | P7 写最小复现实跑一次（Supervisor → Agent Tool → 专业 Agent → 业务 Tool 内 `interrupt()` → 父图 `Command(resume=...)`）。不成立则按 P7 预案把确认上移到 Supervisor 外层节点。**本计划唯一的架构级分叉。** |
 | **R2** | **`MODEL_NAME` 不支持图像输入**，导览图的多模态路径无法成立（K5）。 | §8 第 18 条无法按原样完成 | P2 第一步探测。不支持则降级 OCR 并**如实记录为未验证**，不宣称多模态能力已验证。 |
 | **R3** | **Chroma 元数据只接受标量**，`allowed_roles` 是 list。 | 权限过滤整个失效 | 已由 K2 设计规避（展开为 `allow_<role>` 布尔字段）。P3/P4 仍需实跑确认 `where` 过滤真的生效——尤其确认**缺键的 chunk 被排除**（fail-closed）。 |
+| **R4** | **src 布局下相对层级只在可编辑安装时正确**。若被当成普通 wheel 装进 site-packages，`PACKAGE_DIR` 会落在 `Lib/site-packages` 下，`SRC_ROOT` 随之指向错误位置。 | 全部数据读写跑到错误目录，且 `load_dotenv` **静默不加载** `.env` | 已由 §5.2 的 `paths.py` 断言规避（`data/`、`knowledge/` 不存在即报错）。§8 第 20 条从仓库外目录运行做交叉验证。 |
 
 ---
 
@@ -534,6 +677,7 @@ data/*.json ──►┌┴─────────────────�
 | 17 | 扫描件 OCR | 报销说明扫描件 OCR 结果非空、含标题与关键字段，且**明确标注为机器识别文本**（K6） |
 | 18 | 导览图空间提问 | 问「**会议室 B 位于打印区的哪一侧？**」并答**东侧（右侧）** —— 页脚只写了「上方为北 / 蓝色箭头示电梯到会议室 A 的路线 / 打印区在茶水区东侧」，**没有**给这条答案 |
 | 19 | 防护：非公开员工不可见 | `find_public_employee` **永不返回** `EMP-026` 宋妍 / `EMP-027` 魏然；返回字段不含 `username` / `role` / `account_status` |
+| 20 | 防护：路径与 CWD 无关 | 从**仓库外的任意目录**运行 `uv run --project E:\projects\mutil_agent python -m personal_assistant`，仍能找到 `data/` / `knowledge/` / `.env`（验证 §5.2 的 `paths.py` 真的基于 `__file__` 而非当前目录） |
 
 > ⚠️ 第 18 条的由来：清单自带 `suggested_questions` 的两个问题（「从电梯出来怎样到达会议室 A？」「打印区位于茶水区的哪个方向？」）**答案都已写在图片页脚文字里**，无法区分多模态理解与纯 OCR，不能据此宣称多模态能力已验证；纯 OCR 路径也可能通过那两个题。故改用页脚未给答案的第 18 条。
 > **若 R2 成立（模型不支持图像），第 18 条须记为「无法完成」而非「通过」。**
@@ -552,7 +696,9 @@ data/*.json ──►┌┴─────────────────�
 5. **B5 编号生成**在并发场景可能撞号，同上。
 6. 单/多 Agent 对比（课件 §12.3）不在交付范围。
 7. **§4 的设计决策没有任何现成对标**（决策 D1 排除了参考实现），P2–P5 的通过信号是唯一的证伪手段。若某条通过信号反复不成立，应回头改设计而不是放宽验收。
-8. `konwledge_base.py`（拼写错误的空文件）应删除，新建 `knowledge_base.py` —— 课件全程按 `knowledge_base` 导入。
+8. `konwledge_base.py`（拼写错误的空文件）应删除，新建 `knowledge_base.py`（位于 `src/personal_assistant/`）—— 课件全程按 `knowledge_base` 导入。
+9. **src 布局（D4）是对课件 §5.1 的有意偏离。** 后果是课件里逐段照抄的代码**不再是字面意义上的复制** —— `multi_agent.py` 与 `main.py` 的 import 块、`build_model()` 的 `PROJECT_DIR` 都必须改写（§5.2）。授课时若要讲「直接复制课件代码」，需要同步说明这两处改动，否则学生照抄会撞上 §5.2 描述的静默失效。
+10. **§5.2 的 `.env` 静默失效是本文档新发现的坑**，课件与既有计划都没有提到。src 布局是触发条件，但根因是 `load_dotenv` 找不到文件时不报错 —— 值得在授课时作为「失败静默」的实例讲一次。
 
 ---
 
@@ -593,12 +739,14 @@ data/*.json ──►┌┴─────────────────�
 
 | 阶段 | 含步骤 | 本阶段产出 | 关键验收信号 | 风险 |
 | :---: | --- | --- | --- | --- |
-| **1** | P0 + P1 | `RunContext` / `ROLE_PERMISSIONS`、`requirements.txt`、`.env.example`、`.env` | 导入无报错；赋值抛 `FrozenInstanceError`；**一次最小模型调用真的返回** | — |
-| **2** | P2 + P3 | `knowledge_base.py` 的解析层与建库入口、`build_index.py`、`vector_store/` | 10 份文件的「解析方式 / chunk 数」；`index_manifest.json` 存在且数字相符；抽 5 个 chunk 未被句子中间截断 | **R2**（P2 第一步先探测） |
+| **1** | P0 + P1 | **src 骨架**（`src/personal_assistant/` 的 `__init__.py` / `__main__.py` / `paths.py`）、`pyproject.toml` 的 `[build-system]`、`RunContext` / `ROLE_PERMISSIONS`、`requirements.txt`、`.env.example`、`.env` | `PROJECT_ROOT` 打印出**项目根**；导入无报错；赋值抛 `FrozenInstanceError`；**一次最小模型调用真的返回** | — |
+| **2** | P2 + P3 | `src/personal_assistant/knowledge_base.py` 的解析层与建库入口、`src/personal_assistant/build_index.py`、根目录 `build_index.py` 薄壳、`vector_store/` | 10 份文件的「解析方式 / chunk 数」；`index_manifest.json` 存在且数字相符；抽 5 个 chunk 未被句子中间截断；`python build_index.py` 仍可用 | **R2**（P2 第一步先探测） |
 | **3** | P4 | `search_knowledge` 的检索期权限过滤 | `role=employee` 问 HR 问题返回**零条** `KB-HR-*`；`role=hr` 返回 `KB-HR-001` 证据 | **R3**、安全边界 |
-| **4** | P5 | `business_tools.py` 完整 7 个 Tool + `login_as()` | 员工调审批得 `permission_denied` 且 JSON **字节不变**；`EMP-*` 可查；张伟查申请恰好 3 条 | 业务权限闸门 |
-| **5** | P6 + P7 + P8 | `multi_agent.py`、`main.py` | 见 §11.4 | **R1**（阶段内先做，见 §11.4） |
-| **6** | P9 | 真实验收记录 | §8 的 19 条逐条可观察证据 | — |
+| **4** | P5 | `src/personal_assistant/business_tools.py` 完整 7 个 Tool + `login_as()` | 员工调审批得 `permission_denied` 且 JSON **字节不变**；`EMP-*` 可查；张伟查申请恰好 3 条 | 业务权限闸门 |
+| **5** | P6 + P7 + P8 | `src/personal_assistant/multi_agent.py`、`src/personal_assistant/main.py`、根目录 `main.py` 薄壳 | 见 §11.4；`python main.py` 仍可用 | **R1**（阶段内先做，见 §11.4） |
+| **6** | P9 | 真实验收记录 | §8 的 20 条逐条可观察证据 | — |
+
+> 阶段 1 是 src 布局改造的**唯一落地点**。它之后的每一步都在包里写文件，所以 §5.2 的两个破坏点（import 全包名、路径走 `paths.py`）必须在阶段 1 一次性处理干净，不留到后面。
 
 阶段划分与 §12 的提交切分一一对应。
 
@@ -633,7 +781,7 @@ Supervisor(create_agent + InMemorySaver) → Agent Tool → 专业 Agent → 业
 
 ### 11.5 验收的判断口径
 
-按 §8 的 19 条场景逐条判断，按课件 §12.2 的证据链逐层检查：
+按 §8 的 20 条场景逐条判断，按课件 §12.2 的证据链逐层检查：
 
 ```
 用户任务 → Supervisor 调了哪个 Agent Tool → 专业 Agent 调了哪个业务 Tool

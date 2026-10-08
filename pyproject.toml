@@ -11,6 +11,7 @@ dependencies = [
     "langchain-chroma>=1.1.0",
     "langchain-huggingface>=1.2.2",
     "langchain-openai>=1.6.7",
+    "langchain-text-splitters>=1.1.3",
     "langgraph>=1.2.14",
     "pillow>=12.3.0",
     "pypdf>=6.19.0",
@@ -20,3 +21,12 @@ dependencies = [
     "rapidocr-onnxruntime>=1.4.4",
     "sentence-transformers>=6.1.0",
 ]
+
+# src 布局：代码在 src/personal_assistant/，数据目录（knowledge/ data/ vector_store/）
+# 仍在仓库根。项目名仍为 mutil-agent，只有 import 包名是 personal_assistant。
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/personal_assistant"]
