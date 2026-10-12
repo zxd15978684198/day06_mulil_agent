@@ -56,7 +56,7 @@ if str(REPO_ROOT / "src") not in sys.path:
 
 from langchain.agents import create_agent  # noqa: E402
 from langchain.tools import ToolRuntime, tool  # noqa: E402
-from langchain_core.messages import AIMessage, ToolMessage  # noqa: E402
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
 from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from langgraph.types import Command, interrupt  # noqa: E402
 
@@ -269,6 +269,56 @@ def check_a6() -> None:
     record("A6 print_result 打印回答 + Agent Tool + 内层业务 Tool", ok, printed.strip())
 
 
+def check_a7() -> None:
+    """A7 模型集成：**应用实际使用的那个模型**必须回传 `reasoning_content`。
+
+    这是**机制检查**，不是"跑 N 次看有没有报错"。背景（阶段 6 实测）：模型是 thinking
+    模型（难题上产出上万字符推理内容、数千推理 token），网关要求下一轮把这些内容原样
+    回传，否则返回 400「The `reasoning_content` in the thinking mode must be passed
+    back to the API」；而 langchain 的发送侧序列化只白名单复制 4 个 additional_kwargs
+    键，字段会在发送时丢失 —— 于是「模型 → tool_call → tool 结果 → 再调模型」这条链
+    会偶发 400。该故障率约 5–12%，跑 8 次全过的运气概率就有三成，**所以不能靠统计采样**。
+
+    ⚠️ 判据修正（P0-1，评审提出）：第一版只断言 `kb.build_chat_model()` **自己构造的**实例
+    —— 而应用走的是 `multi_agent.build_model()`。当时那条链拿到的是 `ChatOpenAI`，
+    于是出现了"改了 A、测了 B"：修复没接到应用上，验收却报 PASS。
+    现在**首先**断言 `MultiAgentApplication().model`（应用真实入口）的类型与出站 payload。
+    """
+    marker = "上一轮推理内容-机制检查"
+    messages = [
+        HumanMessage(content="你好"),
+        AIMessage(content="我先想想。", additional_kwargs={"reasoning_content": marker}),
+        HumanMessage(content="继续"),
+    ]
+
+    def carried_by(model: Any) -> tuple[bool, list[list[str]]]:
+        payload = model._get_request_payload(messages)  # type: ignore[attr-defined]
+        assistant_items = [m for m in payload.get("messages", []) if m.get("role") == "assistant"]
+        hit = [m for m in assistant_items if m.get("reasoning_content") == marker]
+        return len(hit) == 1, [sorted(m) for m in assistant_items]
+
+    try:
+        app_model = MultiAgentApplication().model  # 应用真实入口
+        app_ok, app_fields = carried_by(app_model)
+        kb_model, name, source = kb.build_chat_model()
+        kb_ok, _kb_fields = carried_by(kb_model)
+        checks = {
+            "应用实例类型 == ChatReasoningEcho": type(app_model).__name__ == "ChatReasoningEcho",
+            "应用实例的出站请求带 reasoning_content": app_ok,
+            "独立构造的实例也带（两条构造路径一致）": kb_ok,
+        }
+        detail = (
+            f"应用实例: {type(app_model).__name__}\n"
+            f"kb.build_chat_model(): {type(kb_model).__name__} | name={name} | source={source}\n"
+            f"应用实例出站 assistant 消息字段: {app_fields}\n"
+            + "\n".join(f"{k}: {v}" for k, v in checks.items())
+        )
+        ok = all(checks.values())
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{type(exc).__name__}: {exc}"
+    record("A7 模型集成：应用实例的出站请求携带 reasoning_content", ok, detail)
+
+
 # ==========================================================================
 # B 组：R1 最小复现（真实模型）
 # ==========================================================================
@@ -405,11 +455,15 @@ def run_r1_checks() -> None:
                 )
                 rejects += 1
             still_paused = bool(result.get("__interrupt__"))
-            ok = not SIDE_EFFECT.exists()
+            # ⚠️ 判据修正（P0-2，评审提出）：第一版只断言 `not SIDE_EFFECT.exists()`，
+            # 于是「一次都没走到拒绝路径」也能判 PASS —— 那是空信号。既然要验的是
+            # "拒绝后不写入"，就必须**真的拒绝过至少一次**。
+            ok = (not SIDE_EFFECT.exists()) and rejects >= 1
             record(
                 "B3 R1：拒绝后不写入",
                 ok,
                 f"连续拒绝 {rejects} 次（上限 {max_rejects}）后仍暂停: {still_paused}\n"
+                f"有效拒绝次数 >= 1（必须真的走到该路径）: {rejects >= 1}\n"
                 f"副作用文件存在: {SIDE_EFFECT.exists()}（应为 False）\n"
                 f"备注：拒绝后模型重试同一写操作属正常行为，CLI 的 handle_interrupts() "
                 f"是 while 循环，会再次询问用户",
@@ -537,6 +591,7 @@ def main() -> int:
     check_a4(app)
     check_a5()
     check_a6()
+    check_a7()
 
     print()
     print("=" * 78)

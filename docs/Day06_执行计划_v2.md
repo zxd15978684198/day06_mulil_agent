@@ -72,6 +72,8 @@
 | C9 | 身份取不到时 **fail-closed**（新增 `_require_identity`） | 阶段 4 自检发现 | 原实现用 `getattr` 取身份，Context 缺失/形式不符时会**静默产出 `applicant_user_id: ""` 的申请**；现改为 `permission_denied` |
 | C10 | §6 P6 通过信号的「互不重叠」**勘误** | 阶段 5 实测 | 课件 §7.5 把 `query_device_requests` 同时挂在两个专业 Agent 上，唯一重叠即它；判定改为「并集覆盖 7 个 + 除该工具外无重叠」 |
 | C11 | **R1 结论：成立** | 阶段 5 第一步实测 | langchain 1.4.3 / langgraph 1.2.14 下，嵌套 `interrupt()` 能暂停到父图，同一 `thread_id` 的 `Command(resume=...)` 能恢复并让内层业务 Tool 完成写入。**§11.4 的两条预案均不需要启用** |
+| C12 | **thinking 模式下 `reasoning_content` 未回传导致偶发 400** —— 新增依赖 `langchain-deepseek==1.1.1`，`knowledge_base` 增加 `ChatReasoningEcho`（继承 `ChatDeepSeek` + 覆写 `_get_request_payload` 回填字段） | 阶段 6 实测；**用户决策：保留 thinking** | 模型是 thinking 模型（难题实测 19,619 字符推理内容 / 6,091 推理 token）；网关要求下一轮原样回传该字段，否则 400「The `reasoning_content` in the thinking mode must be passed back to the API」。而 `langchain_openai` 的发送侧序列化（模块级 `_convert_message_to_dict`）只白名单复制 `name`/`tool_calls`/`function_call`/`audio` 四个 `additional_kwargs` 键，**从不带 `reasoning_content`**；换 `ChatDeepSeek` 单独不够（它只提取、不覆写发送侧），所以补了回填子类。备选「`reasoning_effort="none"` 关掉 thinking」已机制验证有效（推理 token 归零、字段消失），但**放弃推理能力**，本轮不采用 |
+| C13 | **知识 Agent 提示词的"引用编号"说明改为中性格式**：`KB-<类别>-<三位序号>`，同时示范 `KB-PUB-###` 与 `KB-HR-###`，**不给任何真实编号** | 阶段 6 复跑实测（§8 第 4 条 FAIL） | 第一版提示词写着「形如 **KB-PUB-001**《公司介绍与办公指南》」——**把期望答案喂进了被测系统**（§8 第 1 条因此变成"复述提示词即可通过"）；改成占位符 `KB-PUB-0NN` 后，又因为**只示范了公开资料的前缀**，模型答 HR 资料时只写标题、漏写编号 → §8 第 4 条 FAIL（实测：检索层正确命中 `KB-HR-001`、`KB-HR-*` 4 条，**权限边界完全成立**，只是回答没写出编号）。中性格式说明后，场景 1 与 4 连跑两次 **4/4 PASS**。**可复用教训：提示词里的示例只能给「格式」，不能给「实例」** —— 给实例等于喂答案，只给单类前缀会让另一类资料漏格式 |
 
 > C1/C2 是本文档自身的变更；C3/C4 已登记在阶段 2 的验收汇报里，此处汇总备查。
 
@@ -563,6 +565,7 @@ data/*.json ──►┌┴─────────────────�
   5. 建 `.env.example` 与 `.env`
 - **指令模板**：「用 `uv add` 添加依赖并把解析出的实际版本写进 `requirements.txt`。**不要**用 `python -m pip`（本 venv 无 pip）。**不要**把 `.env` 提交进 git。**不要**在代码里硬编码 API Key。**不要**在包模块里用 `__file__` 自己拼路径，一律走 `paths.py`。」
 - **依赖清单**（由 §4 的设计推导，非抄自任何现成文件）：`langchain`、`langchain-openai`、`langgraph`、`langchain-chroma`、`chromadb`、`langchain-huggingface`、`sentence-transformers`、`python-dotenv`、`pypdf`、`pypdfium2`、`python-docx`、`beautifulsoup4`、`rapidocr-onnxruntime`（或等效 RapidOCR 包）、`pillow`。
+  > 阶段 2 追加 `langchain-text-splitters`（langchain 1.x 不再内置切分器）；阶段 6 追加 `langchain-deepseek`（thinking 模式回传 `reasoning_content`，见 C12）。
 - **通过信号**：`uv run python -c "from personal_assistant.paths import PROJECT_ROOT; print(PROJECT_ROOT)"` 打印出**项目根**（**不是** `...\src` 或 `...\src\personal_assistant`）；`uv pip list` 显示本项目已以可编辑方式安装；`uv run python -c "import langchain, langgraph, chromadb"` 成功；`uv pip list` 输出含全部依赖及**实际版本**，并记录进交付物；**并做一次最小模型调用**（`build_model()` 后发一条最简消息）确认真实返回。
   > 凭据是否可用**至今未经验证**（D2 只是「本机有凭据」这一前提）。**必须在阶段 1 就打通**，不要拖到阶段 6 才发现 `API_KEY` / `BASE_URL` 不通 —— 那时返工面最大。
 - **翻车信号**：`No module named pip` → 误用了 pip；`uv sync` 报找不到包 → `[build-system]` 加在了 `__init__.py` 之前；`PROJECT_ROOT` 打印到 `src` 层 → `parents[2]` 数错了；`EMBEDDING_MODEL` 首次下载失败 → 查网络 / HF 镜像。
@@ -708,6 +711,25 @@ data/*.json ──►┌┴─────────────────�
 9. **src 布局（D4）是对课件 §5.1 的有意偏离。** 后果是课件里逐段照抄的代码**不再是字面意义上的复制** —— `multi_agent.py` 与 `main.py` 的 import 块、`build_model()` 的 `PROJECT_DIR` 都必须改写（§5.2）。授课时若要讲「直接复制课件代码」，需要同步说明这两处改动，否则学生照抄会撞上 §5.2 描述的静默失效。
 10. **§5.2 的 `.env` 静默失效是本文档新发现的坑**，课件与既有计划都没有提到。src 布局是触发条件，但根因是 `load_dotenv` 找不到文件时不报错 —— 值得在授课时作为「失败静默」的实例讲一次。
 11. **K8 的 `no_evidence` 分支在非空索引上不可达**（阶段 3 实测）。向量检索对**任何**查询都会返回 k 条最近邻，所以「零命中」不会因「问题与知识库无关」而发生 —— 该分支实际只覆盖「索引为空」或「按角色过滤后无候选」两种情况。后果：员工问 HR 专属问题时，模型仍会拿到 5 条弱相关的公开 chunk（实测 score 1.04–1.17），「回答无法确认」只能靠知识 Agent 的提示词约束（见 C6）。**若 P9 的 §8 第 3 条守不住，再回来考虑相关性阈值，不要靠改 Prompt 遮掩权限问题。**
+12. **`reasoning_content` 的 400 是「环境/模型兼容性」缺陷，不是业务逻辑错**（阶段 6 实测，见 C12）。链路：thinking 模型产出推理内容 → 网关要求下一轮原样回传 → `langchain_openai` 的发送侧序列化只白名单复制 4 个 `additional_kwargs` 键、**丢掉该字段** → 「模型 → tool_call → tool 结果 → 再调模型」偶发 400。**触发概率实测约 5–12%**，因此：
+    * 该故障**只在多步工具调用链上出现**，单轮问答不受影响；
+    * **不能用「跑几次都通过」来证明它消失** —— 以 12.5% 失败率计，连跑 8 次全过的概率约 34%。验收台因此改用**机制检查**（`verify_phase5.py` 的 A7：直接断言出站请求体里带上该字段），而不是统计采样；
+    * 残余风险：`ChatReasoningEcho` 是**针对该网关约定**的定制。换到不要求回传该字段的网关时它无害（没有该字段就不回填），但换到别的 thinking 模型时**需要重新验证**；
+    * 备用方案（若该定制在别的环境失效）：在 `build_model_options()` 里加 `reasoning_effort="none"` 关掉 thinking —— 已机制验证有效，代价是放弃推理能力；注意 `build_model_options()` 是聊天与多模态**共用**的，真去关会**连带关闭视觉路径的 thinking**。
+13. **阶段 6 的「20/20」曾包含两处空信号**（技术方案评审团 2026-10-08 评审发现，**已修**）。这条教训比缺陷本身更重要，故完整登记：
+    * **P0-1「改了 A、测了 B」**：`reasoning_content` 的修复只改到 `knowledge_base.build_chat_model()`，而**应用走的是 `multi_agent.build_model()`**（`init_chat_model(name, model_provider="openai")` 按 langchain 内置映射拿到 **`ChatOpenAI`**）—— 修复**根本没接到应用上**；而当时的 A7 只断言了 `build_chat_model()` **自己构造的**实例，属自证。**已修**：`build_model()` 委托 `build_chat_model()`；A7 改为**首先**断言 `MultiAgentApplication().model` 的类型与出站 payload。实测：`build_model()`、`MultiAgentApplication().model` 现均为 `ChatReasoningEcho`。
+    * **P0-2 五处弱断言**：§8 第 5 条在那一轮是 `第一轮 task: (无)`（第一轮**根本没调工具**），而判据用的是"或"（第二轮自己的话里就含「24」）→ **零证明力**；§8 第 1 条断言的 `KB-PUB-001` 恰好**写在被测系统的提示词里** → 把期望答案喂给了被测对象；`verify_phase5` B3 在 `rejects == 0`（一次都没走到拒绝路径）时仍判 PASS；§8 第 15 条的期望值由**被测数据自身**推出；§8 第 8 条断言在 frozen dataclass 上（测的是 dataclass，不是产品）。**已逐条修**，改法与理由写在各自函数的 docstring 里。
+    * **教训**：`coverage = 3/3` 只代表成员返回，**不代表结论已验证**；**验收台本身必须被审** —— 会"自证"的断言比没有断言更危险，因为它给出的是"通过"这个错误信号。
+14. **评审提出的其余项**（2026-10-08 处置）：
+    * **已修**：
+      * **V6** §8 第 9 条补了**反方向**断言 —— 原来只验「employee 调 hr 专属工具」，现在同时验「hr 调 `create_device_request`」也返回 `permission_denied`；边界是"按角色授权"，应双向都验；
+      * **H1** `build_vector_store()` 增加 `_warn_embedding_model_changed()`：换了 `EMBEDDING_MODEL` 却忘记重建时**显式告警**（查询向量与库内向量不同源会让相似度彻底失去意义，而系统原本不报任何错）；
+      * **R2** `handle_interrupts()` 在 `len(interrupts) > 1` 时**打印显式告警**（行为仍与课件一致：只确认第一个），避免将来"以为都处理了"；
+      * **E11** 仓库根 `verify_p5.py` 移入 `src/test/verify_phase4_repro.py`，并把路径改成由 `__file__` 推导（实测从 `C:\` 也能跑通）。
+    * **登记未修（均不阻断交付）**：
+      * **R7** `create_device_request` 的 `reason` 是用户输入，落盘后又被 HR Agent 读进上下文，构成**间接注入通道**（有人工确认兜底，未验证可利用性）；
+      * **R9**「`allow_<role>` 缺键即被排除」这条 fail-closed 性质在当前数据上**不可证**（36 个 chunk 两个键都齐全）；
+      * **R10** 没有测试验证「权限收紧后重建索引，是否真的移除了旧 chunk」—— 需要真的改一份文档的 `allowed_roles` 并重建（约 3 分钟），属回归用例缺口而非缺陷。
 
 ---
 

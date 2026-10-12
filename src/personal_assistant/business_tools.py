@@ -596,13 +596,18 @@ def approve_device_request(
             f"申请 {request_id} 当前状态为 {target.get('status')}，不能再次审批",
         )
 
+    # P1：审批中断的载荷补上**人类可读**的申请人姓名与设备名。
+    # 仍按稳定编号回源文件解析，不把姓名冗余写进记录 —— 编号才是唯一 join key。
+    target_view = _request_view(target, _load_users(), _load_devices())
     payload = {
         "action": "approve_device_request",
         "request_id": request_id,
         "decision": decision,
         "comment": comment,
         "applicant_user_id": target.get("applicant_user_id"),
+        "applicant_name": target_view.get("applicant_name"),
         "device_id": target.get("device_id"),
+        "device_name": target_view.get("device_name"),
         "quantity": target.get("quantity"),
     }
     answer = interrupt(payload)

@@ -11,6 +11,9 @@ beautifulsoup4==4.15.0
 chromadb==1.5.9
 langchain==1.4.3
 langchain-chroma==1.1.0
+# 2026-10-08 追加：网关在 thinking 模式下要求回传 reasoning_content，ChatOpenAI 做不到；
+# 用 ChatDeepSeek 提取该字段 + 本地子类回填（见 knowledge_base.ChatReasoningEcho）。
+langchain-deepseek==1.1.1
 langchain-huggingface==1.2.2
 langchain-openai==1.6.7
 langchain-text-splitters==1.1.3

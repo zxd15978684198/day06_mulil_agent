@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="indigo">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>企业员工服务助手</title>
+    <script>
+      /*
+       * 防闪烁（FOUC）：主题必须在 React 挂载**之前**写到 <html data-theme> 上，
+       * 否则每次刷新都会先闪一下默认主题。
+       *
+       * ⚠️ 这里的键与候选列表是 `src/lib/theme.ts` 里那份的**拷贝** —— 那段代码跑在
+       * 打包产物之外，没法 import。改主题列表时两处必须同步。
+       */
+      ;(function () {
+        var KNOWN = ['indigo', 'midnight', 'graphite', 'daylight']
+        var KEY = 'day06.employee-assistant.theme'
+        var theme = 'indigo'
+        try {
+          var stored = localStorage.getItem(KEY)
+          if (stored && KNOWN.indexOf(stored) >= 0) theme = stored
+        } catch (error) {
+          /* 隐私模式读不到 localStorage：用默认主题即可 */
+        }
+        document.documentElement.setAttribute('data-theme', theme)
+      })()
+    </script>
+    <script type="module" crossorigin src="/static/assets/index-ojydck4-.js"></script>
+    <link rel="stylesheet" crossorigin href="/static/assets/index-B7Xsc_VF.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

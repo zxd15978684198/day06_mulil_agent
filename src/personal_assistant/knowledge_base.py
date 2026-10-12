@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ from langchain_core.documents import Document  # noqa: E402
 from langchain_huggingface import HuggingFaceEmbeddings  # noqa: E402
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: E402
 from langchain.tools import ToolRuntime, tool  # noqa: E402
+from langchain_core.messages import AIMessage  # noqa: E402
+from langchain_deepseek import ChatDeepSeek  # noqa: E402
 
 # --------------------------------------------------------------------------
 # 路径与常量
@@ -50,6 +53,12 @@ INDEX_MANIFEST_PATH = VECTOR_STORE_DIR / "index_manifest.json"
 
 COLLECTION_NAME = "day05_knowledge"
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+# Chroma 自己生成的 HNSW 段目录名（UUID）。孤儿清扫**只允许**删这种名字的目录，
+# 以免误删用户在 vector_store/ 下自己放的东西（R5，阶段 6 评审提出）。
+_SEGMENT_DIR_PATTERN = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
 
 # K3：中文分隔符序列与初始切分参数（工程估计，P3 抽查后定值）
 CHUNK_SIZE = 600
@@ -102,15 +111,23 @@ TEMP_WORKAROUND_DIR = PROJECT_ROOT / ".tmp"
 
 
 def _probe_writable(directory: Path) -> str | None:
-    """可写则返回 None，否则返回**失败原因**（写不进去 / 删不掉要分开说）。"""
+    """可写则返回 None，否则返回**失败原因**（写不进去 / 删不掉要分开说）。
+
+    ⚠️ 探测文件名必须**每次唯一**：LangGraph 的 ToolNode 会用线程池**并发**执行
+    多个 tool_call，若两个线程用同名探测文件，就会出现「T1 建、T2 建（覆盖）、
+    T1 删、T2 删」——第二个删除抛 FileNotFoundError，把「可写」误判成「删不掉」。
+    """
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        probe = directory / f".write_probe_{os.getpid()}"
+        probe = directory / f".write_probe_{os.getpid()}_{uuid.uuid4().hex[:8]}"
         probe.write_text("x", encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         return f"创建探测文件失败：{type(exc).__name__}: {exc}"
     try:
         probe.unlink()
+    except FileNotFoundError:
+        # 已被并发的另一次探测删掉 —— 恰恰说明这个目录可写可删
+        return None
     except Exception as exc:  # noqa: BLE001
         # 能写但删不掉：chromadb 的 SQLite 需要建/删临时文件，所以同样算不可用
         return f"能写但删不掉探测文件：{type(exc).__name__}: {exc}"
@@ -509,16 +526,63 @@ def build_model_options(
     return options
 
 
-def build_chat_model(prefix: str = "", session_id: str | None = None) -> tuple[Any, str, str]:
-    """按配置构造模型，返回 `(model, model_name, source)`。"""
-    from langchain.chat_models import init_chat_model
+class ChatReasoningEcho(ChatDeepSeek):
+    """聊天模型：保留 thinking，并把上一轮 assistant 的 `reasoning_content` 原样回传。
 
-    provider, name, source = resolve_model_config(prefix)
-    model = init_chat_model(
-        name,
-        model_provider=provider,
-        **build_model_options(prefix, session_id=session_id),
-    )
+    **为什么需要**（阶段 6 实测）：本机 `BASE_URL` 指向的网关在 thinking 模式下要求把
+    上一轮 assistant 消息里的 `reasoning_content` 原样回传，否则返回 400：
+
+        The `reasoning_content` in the thinking mode must be passed back to the API.
+
+    但 langchain 的**发送侧**序列化是模块级函数 `_convert_message_to_dict`，只白名单
+    复制 `name` / `tool_calls` / `function_call` / `audio` 四个 `additional_kwargs` 键
+    （`langchain_openai` 明确声明不解析非标准字段），因此该字段在发送时会丢失 —— 于是
+    「模型 → tool_call → tool 结果 → 再调模型」这条链会**偶发** 400。
+
+    分两步补齐：
+
+    1. 基类换成 `ChatDeepSeek`：它会把响应里的 `reasoning_content` **提取**进
+       `additional_kwargs`（这一步 `ChatOpenAI` 完全不做）；
+    2. 本类覆写 `_get_request_payload`：按 assistant 消息的出现顺序把该字段**回填**进
+       请求体（`ChatDeepSeek` 本身只做 content 类型规整，不覆写发送侧）。
+
+    对不产出推理内容的模型是无害的：没有该字段就不回填。
+
+    实测（2026-10-08）：出站 payload 中 assistant 消息已携带 `reasoning_content`；
+    真实知识 Agent 连跑 6 次无报错，且推理 token > 0（**thinking 能力未被牺牲**）。
+    """
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):  # type: ignore[override]
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        try:
+            messages = self._convert_input(input_).to_messages()
+        except Exception:  # noqa: BLE001 —— 拿不到原始消息时退回未加工的 payload
+            return payload
+        assistants = [m for m in messages if isinstance(m, AIMessage)]
+        index = 0
+        for item in payload.get("messages", []):
+            if item.get("role") != "assistant":
+                continue
+            if index >= len(assistants):
+                break
+            reasoning = (getattr(assistants[index], "additional_kwargs", None) or {}).get(
+                "reasoning_content"
+            )
+            if reasoning:
+                item["reasoning_content"] = reasoning
+            index += 1
+        return payload
+
+
+def build_chat_model(prefix: str = "", session_id: str | None = None) -> tuple[Any, str, str]:
+    """按配置构造模型，返回 `(model, model_name, source)`。
+
+    用 `ChatReasoningEcho` 构造而不是 `init_chat_model`：网关在 thinking 模式下要求
+    回传 `reasoning_content`，见该类文档。`provider` 仍从配置解析（缺失即报错），
+    只是不参与构造 —— `ChatReasoningEcho` 本身是 OpenAI 兼容客户端。
+    """
+    _provider, name, source = resolve_model_config(prefix)
+    model = ChatReasoningEcho(model=name, **build_model_options(prefix, session_id=session_id))
     return model, name, source
 
 
@@ -693,8 +757,11 @@ def _reset_collection() -> None:
     if client.list_collections():
         return  # 库里还有别人的 collection，孤儿清扫跳过
 
+    # R5（评审提出）：只删 **UUID 命名**的 Chroma 段目录。早先的实现是"删掉所有子目录"，
+    # 与本函数文档承诺的"不碰用户自己放的东西"不符 —— 会把 vector_store/ 下任何
+    # 非 Chroma 的目录一并删掉。
     for child in sorted(VECTOR_STORE_DIR.iterdir()):
-        if child.is_dir():  # Chroma 的 HNSW 段目录（UUID 命名）
+        if child.is_dir() and _SEGMENT_DIR_PATTERN.fullmatch(child.name):
             shutil.rmtree(child)
             print(f"[索引] 已清理孤儿索引段：{child.name}")
 
@@ -790,6 +857,11 @@ def build_vector_store() -> dict[str, Any]:
 
     embeddings, embedding_model = _build_embeddings()
     print(f"[向量化] {len(documents)} 个 chunk 写入 Chroma（{embedding_model}）...", flush=True)
+
+    # H1（评审提出）：换过 EMBEDDING_MODEL 后如果忘了重建，检索会静默用错向量空间 ——
+    # 查询向量与库内向量不同源，相似度毫无意义，但**不会报任何错**。这里显式告警。
+    _warn_embedding_model_changed(embedding_model)
+
     _reset_collection()
     Chroma.from_documents(
         documents=documents,
@@ -847,18 +919,68 @@ _vector_store_cache: Chroma | None = None
 
 
 def _open_vector_store() -> Chroma:
-    """打开只读的 Chroma 索引（懒加载并复用）。"""
+    """打开只读的 Chroma 索引（懒加载并复用）。
+
+    **空库必须报错，不能静默**（D1，阶段 6 评审提出）：`Chroma(...)` 的
+    `create_collection_if_not_exists` 默认为 `True`（实测确认），所以当索引目录被清空、
+    而 `index_manifest.json` 恰好还在时，它会**悄悄建一个空 collection** —— 检索返回 0 条
+    却看起来"运行正常"，用户会以为"知识库里没这条资料"，而不是"索引没建好"。
+    这里显式检查 chunk 数：为 0 直接报错；与 manifest 不一致则告警但不中止
+    （允许手工调过索引的场景）。
+    """
     global _vector_store_cache
     if _vector_store_cache is None:
         # 临时目录由入口脚本适配；库侧只检查，不可用就给可操作的错误
         _require_usable_tempdir()
         embeddings, _model_name = _build_embeddings()
-        _vector_store_cache = Chroma(
+        store = Chroma(
             collection_name=COLLECTION_NAME,
             embedding_function=embeddings,
             persist_directory=str(VECTOR_STORE_DIR),
         )
+        count = store._collection.count()  # noqa: SLF001 —— 只为拿到 chunk 数
+        if count == 0:
+            raise RuntimeError(
+                f"向量库为空（collection {COLLECTION_NAME!r} 里没有任何 chunk）。\n"
+                f"若索引刚被清理或未构建，请运行：uv run python build_index.py\n"
+                f"目录：{VECTOR_STORE_DIR}"
+            )
+        expected = _manifest_chunk_count()
+        if expected is not None and expected != count:
+            print(
+                f"[索引] 警告：collection 内 chunk 数 {count} 与 index_manifest.json 的 "
+                f"{expected} 不一致 —— 索引可能不是最新，建议重建。"
+            )
+        _vector_store_cache = store
     return _vector_store_cache
+
+
+def _manifest_chunk_count() -> int | None:
+    """读 `index_manifest.json` 里的 chunk 数；读不到返回 None（不阻断检索）。"""
+    try:
+        return int(json.loads(INDEX_MANIFEST_PATH.read_text(encoding="utf-8"))["chunk_count"])
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _warn_embedding_model_changed(current_model: str) -> None:
+    """H1：对比现有索引记录的 embedding 模型与本次要用的，不一致就**显式告警**。
+
+    为什么要告警：查询向量与库内向量必须来自同一个模型，否则相似度没有意义；
+    而换了 `EMBEDDING_MODEL` 却忘记重建时，系统**不会报错**，只会给出毫无依据的检索结果。
+    这里只在重建时提示（重建本身会覆盖索引，所以只是提醒"你正在换模型"）。
+    """
+    try:
+        recorded = json.loads(INDEX_MANIFEST_PATH.read_text(encoding="utf-8")).get(
+            "embedding_model"
+        )
+    except Exception:  # noqa: BLE001
+        return
+    if recorded and recorded != current_model:
+        print(
+            f"[向量化] 注意：现有索引用的是 {recorded}，本次将改用 {current_model}。\n"
+            f"         重建会整体覆盖索引，旧向量作废；若有其他程序/脚本按旧模型查询，请一并更新。"
+        )
 
 
 def _evidence_of(hit: Document, score: float, rank: int) -> dict[str, Any]:

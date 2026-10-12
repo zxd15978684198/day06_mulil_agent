@@ -217,6 +217,18 @@
       "reviewer_user_id": "USR-003",
       "reviewed_at": "2026-08-28T09:20:00+08:00",
       "review_comment": "当前理由不属于公司工位的办公需求。"
+    },
+    {
+      "request_id": "REQ-2026-0019",
+      "applicant_user_id": "USR-001",
+      "device_id": "DEV-MONITOR-24",
+      "quantity": 1,
+      "reason": "开发时需要一边进行开发工作，一边查看资料/文档，用于双屏办公。",
+      "status": "approved",
+      "requested_at": "2026-10-09T17:49:28+08:00",
+      "reviewer_user_id": "USR-003",
+      "reviewed_at": "2026-10-09T17:52:39+08:00",
+      "review_comment": "同意"
     }
   ]
 }

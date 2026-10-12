@@ -23,16 +23,18 @@ R1 已实测（阶段 5 第一步）：嵌套 `interrupt()` 能暂停到父图�
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
 from langchain.agents import create_agent
-from langchain.chat_models import init_chat_model
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Command
+from langgraph.config import get_stream_writer
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Command, interrupt
 
 from personal_assistant.business_tools import (
     RunContext,
@@ -45,13 +47,36 @@ from personal_assistant.business_tools import (
     query_device_requests,
     search_company_knowledge,
 )
-from personal_assistant.knowledge_base import build_model_options, resolve_model_config
+from personal_assistant.knowledge_base import build_chat_model, new_session_id
 
 
-def build_model() -> Any:
-    """创建三个专业 Agent 与 Supervisor 共用的聊天模型。"""
-    provider, name, _source = resolve_model_config("")
-    return init_chat_model(name, model_provider=provider, **build_model_options())
+def write_stream_event(event: dict[str, Any]) -> None:
+    """在流式运行时发送自定义事件，普通invoke时保持兼容"""
+    try:
+        # writer 由当前langgraph运行环境提供，不需要自己创建
+        writer = get_stream_writer()
+        # 调用writer之后，event 字典会进入 custom 流
+        writer(event)
+    except RuntimeError:
+        # 普通invoke()中没有流写入器，此时只是不发送页面状态
+        pass
+
+
+def build_model(session_id: str | None = None) -> Any:
+    """创建三个专业 Agent 与 Supervisor 共用的聊天模型。
+
+    ⚠️ **必须走 `knowledge_base.build_chat_model()`**（阶段 6 评审 P0-1）。它构造的是
+    `ChatReasoningEcho`，会把网关 thinking 模式要求的 `reasoning_content` 回传。
+
+    早先这里写的是 `init_chat_model(name, model_provider="openai", ...)`：按 langchain
+    的内置 provider 映射，`openai` → **`ChatOpenAI`**，而它既不提取也不回填该字段 ——
+    于是「模型 → tool_call → tool 结果 → 再调模型」这条路会偶发 400，**修复等于没接到
+    应用上**；当时的验收又只断言了 `build_chat_model()` 自己的实例，属"改了 A、测了 B"。
+
+    `session_id` 会作为网关要求的 `x-opencode-session` 头（每个会话一个，见 R3）。
+    """
+    model, _name, _source = build_chat_model("", session_id=session_id)
+    return model
 
 
 def message_text(message: BaseMessage) -> str:
@@ -133,7 +158,7 @@ class MultiAgentApplication:
         """创建三个只拥有本职业务 Tool 的专业 Agent。"""
 
         self.knowledge_agent = create_agent(
-            model=self.model,
+            model=self.model.with_config({"tags": ["nostream"]}),
             tools=[search_company_knowledge],
             context_schema=RunContext,
             system_prompt=(
@@ -141,13 +166,17 @@ class MultiAgentApplication:
                 "检索前确认任务包含明确的业务主题，不要直接使用'这个'、'那个'、'它'等模糊指代检索。"
                 "如果任务仍无法独立理解，明确返回需要补充的信息，不要猜测。"
                 "只依据 Tool 返回的证据回答，并保留资料标题和来源。"
+                "引用资料时必须**逐条写出文档编号与标题**，编号只能取自 Tool 返回值，"
+                "不得自己编造。编号的形式是 `KB-<类别>-<三位序号>`："
+                "公开资料形如 KB-PUB-###，HR 资料形如 KB-HR-### —— "
+                "这里只说明**格式**，具体序号必须照证据里给出的原文抄写，不要推测。"
                 "证据必须真正回答所问的问题：如果返回的资料与问题无关，"
                 "必须明确说明当前知识库无法确认，不得用相近内容的资料凑答案。"
             ),
         )
 
         self.employee_service_agent = create_agent(
-            model=self.model,
+            model=self.model.with_config({"tags": ["nostream"]}),
             tools=[
                 find_department,
                 find_public_employee,
@@ -165,7 +194,7 @@ class MultiAgentApplication:
         )
 
         self.hr_agent = create_agent(
-            model=self.model,
+            model=self.model.with_config({"tags": ["nostream"]}),
             tools=[query_device_requests, approve_device_request],
             context_schema=RunContext,
             system_prompt=(
@@ -197,11 +226,42 @@ class MultiAgentApplication:
             不能只包含"那需要什么资料"等无法独立理解的表达。
             """
 
-            result = knowledge_agent.invoke(
-                {"messages": [{"role": "user", "content": task}]},
-                context=runtime.context,
+            write_stream_event(
+                {
+                    "event": "tool_start",
+                    "data": {"name": "knowledge_agent", "label": "知识 Agent"},
+                }
             )
-            return specialist_result("knowledge_agent", result)
+
+            try:
+                result = knowledge_agent.invoke(
+                    {"messages": [{"role": "user", "content": task}]},
+                    context=runtime.context,
+                )
+
+                answer = specialist_result("knowledge_agent", result)
+
+                write_stream_event(
+                    {
+                        "event": "tool_end",
+                        "data": {"name": "knowledge_agent", "label": "知识 Agent"},
+                    }
+                )
+
+                return answer
+            except GraphInterrupt:
+                # 人工确认中断是正常控制流，不是失败：直接放行，不上报 tool_error
+                raise
+            except Exception :
+                # 不把内部堆栈发送给页面，只发送可公布状态
+                write_stream_event(
+                    {
+                        "event": "tool_error",
+                        "data": {"name": "knowledge_agent", "message": "知识 Agent 调用失败"},
+                    }
+                )
+                # 不在当前 Tool中从吞掉异常，继续交给外层事务流统一处理。
+                raise
 
         @tool
         def ask_employee_service_agent(
@@ -213,12 +273,39 @@ class MultiAgentApplication:
 
             task 必须补全历史中已确认的设备、数量、理由等必要参数。
             """
-
-            result = employee_service_agent.invoke(
-                {"messages": [{"role": "user", "content": task}]},
-                context=runtime.context,
+            write_stream_event(
+                {
+                    "event": "tool_start",
+                    "data": {"name": "employee_service_agent", "label": "员工服务 Agent"},
+                }
             )
-            return specialist_result("employee_service_agent", result)
+
+            try:
+                result = employee_service_agent.invoke(
+                    {"messages": [{"role": "user", "content": task}]},
+                    context=runtime.context,
+                )
+                answer = specialist_result("employee_service_agent", result)
+
+                write_stream_event(
+                    {
+                        "event": "tool_end",
+                        "data": {"name": "employee_service_agent", "label": "员工服务 Agent"},
+                    }
+                )
+
+                return answer
+            except GraphInterrupt:
+                # 人工确认中断是正常控制流，不是失败：直接放行，不上报 tool_error
+                raise
+            except Exception :
+                write_stream_event(
+                    {
+                        "event": "tool_error",
+                        "data": {"name": "employee_service_agent", "message": "员工服务 Agent 调用失败"},
+                    }
+                )
+                raise
 
         @tool
         def ask_hr_agent(
@@ -231,11 +318,35 @@ class MultiAgentApplication:
             task 必须补全历史中已确认的申请编号、审批决定和意见。
             """
 
-            result = hr_agent.invoke(
-                {"messages": [{"role": "user", "content": task}]},
-                context=runtime.context,
+            write_stream_event(
+                {
+                    "event": "tool_start",
+                    "data": {"name": "hr_agent", "label": "HR Agent"},
+                }
             )
-            return specialist_result("hr_agent", result)
+            try:
+                result = hr_agent.invoke(
+                    {"messages": [{"role": "user", "content": task}]},
+                    context=runtime.context,
+                )
+                write_stream_event(
+                    {
+                        "event": "tool_end",
+                        "data": {"name": "hr_agent", "label": "HR Agent"},
+                    }
+                )
+                answer = specialist_result("hr_agent", result)
+            except GraphInterrupt:
+                # 人工确认中断是正常控制流，不是失败：直接放行，不上报 tool_error
+                raise
+            except Exception:
+                write_stream_event(
+                    {
+                        "event": "tool_error",
+                        "data": {"name": "hr_agent", "message": "HR Agent 调用失败"},
+                    }
+                )
+                raise
 
         # 保存为实例属性，创建 Supervisor 时使用。
         self.ask_knowledge_agent = ask_knowledge_agent
@@ -283,6 +394,14 @@ class MultiAgentApplication:
         )
         thread_id = str(uuid4())
 
+        # R3（评审提出）：网关按会话做路由与 prompt 缓存，`x-opencode-session` 必须
+        # **每个会话一个**。模型对象在 __init__ 里建过一次，这里用新的会话 ID 重建，
+        # 并同步重建持有它的 3 个专业 Agent 与 Agent Tool —— 课件要求的是「同一会话内
+        # 三个 Agent 复用同一个模型对象」，不是「整个进程共用一个」。
+        self.model = build_model(session_id=new_session_id())
+        self._build_specialists()
+        self._build_agent_tools()
+
         return UserSession(
             context=context,
             thread_id=thread_id,
@@ -315,3 +434,97 @@ class MultiAgentApplication:
             config=self._config(session),
             context=session.context,
         )
+
+    async def stream_chat(self,
+                          session: UserSession,
+                          user_text: str
+                          ) -> AsyncIterator[dict[str, Any]]:
+        """把langgraph的模型文本，Agent Tool 状态和确认信息逐步向外发送"""
+
+        # interrupts保存最近一次人工确认信息，初始状态表示没有中断。
+        interrupts = ()
+        # sent_text 用于判断是否已经发送过文本，防止兜底回答重复现实
+        sent_text = False
+        # final_answer 保存 updates 中出现的完整回答
+        final_answer = ""
+        # turn_messages 攒本轮 updates 里出现过的消息，用来在流末尾生成轨迹增量。
+        # 只攒 updates 分支的，因为 messages 分支收到的是逐 token 分片。
+        turn_messages: list[Any] = []
+
+        async for part in session.supervisor.astream(
+            # 只提交本轮消息，历史消息由当前的 thread_id 对应的 Checkpointer 恢复
+            {"messages": [{"role": "user", "content": user_text}]},
+            config=self._config(session),
+            context=session.context,
+            stream_mode=["messages","custom","updates"],
+            version="v2"
+        ):
+            # type表示StreamPart的来源，这里只处理模型消息
+            if part["type"] == "messages":
+                # messages模式下的data是(token,metatdata)二元组
+                # 变量前的下划线表示当前暂时不使用metadata
+                message,_metadata = part["data"]
+                # 只流**模型自己产出**的文本。
+                # messages 模式除了模型 token，还会把工具节点写回状态的消息
+                # （ToolMessage）也当作一条 message 送过来，而 Agent Tool 的返回值
+                # 是 specialist_result() 的 json.dumps：
+                #   {"agent": "knowledge_agent", "answer": "...", "business_tools": [...]}
+                # 那是给 Supervisor 解析用的机器层数据（人看的那份在同一份 JSON 的
+                # answer 字段里，由 Supervisor 重写后再输出）。不过滤的话，用户会在
+                # 正文前面先看到一段裸 JSON —— 实测就是这样。
+                # 注意 AIMessageChunk 是 AIMessage 的子类，逐 token 的分片不会被误杀。
+                if not isinstance(message, AIMessage):
+                    continue
+                text = message_text(message)
+                if text:
+                    sent_text = True
+                    yield {
+                        "event": "text_delta",
+                        "data": {"text": text},
+                    }
+            elif part["type"] == "custom":
+                # writer_stream_event() 写入的 tool_start,tool_end 等事件从这里到达
+                yield part["data"]
+
+            elif part["type"] == "updates":
+                # data 是本次节点更新的字典；暂停时会额外包含__interrupt__
+                interrupts = part["data"].get("__interrupt__", interrupts)
+                # 某些模型只在节点结束时返回完整信息，保存最终回答作为兜底
+
+                for update in part["data"].values():
+                    if not isinstance(update, dict):
+                        continue
+                    for message in update.get("messages", []):
+                        # 攒起来给末尾的 trace 事件用（见下方说明）
+                        turn_messages.append(message)
+                        # 没有tool_calls 的 AIMessage 才是可展示的回答，不是调用Tool的指令
+                        if isinstance(message, AIMessage) and not message.tool_calls:
+                            text = message_text(message)
+                            if text:
+                                final_answer = text
+
+        # 没有收到逐段文本时，至少把最终完整回答发送给页面
+        if not sent_text and final_answer:
+            yield {"event": "text_delta", "data": {"text": final_answer}}
+
+        # 本轮的轨迹增量发给页面。
+        # 背景：轨迹原先只由 /api/confirmation 的 AgentReply 带回来，于是**普通问答轮**
+        # 的轨迹只活在浏览器的临时状态里 —— 刷新一次就没了，右栏还会误报成
+        # "本轮 Supervisor 直接回答了，没有转给任何专家"。这里在 done 之前补一条
+        # trace 事件，前端 StreamHandlers.onTrace 用游标切片后落库。
+        # 中断轮刻意不发：那条路的 trace 由 /api/confirmation 一次性给全（含
+        # agent_tool_result），分两段反而会把同一轮拆开、让右栏的专家/工具汇总变残。
+        if not interrupts:
+            yield {
+                "event": "trace",
+                "data": {"trace": outer_trace({"messages": turn_messages})},
+            }
+
+        if interrupts:
+            # interrupt 的 value 是暂停时交给用户确认的业务数据
+            value = interrupts[0].value
+            confirmation = (
+                value if isinstance(value, dict) else {"message": str(value)}
+            )
+            yield {"event": "confirmation", "data": confirmation}
+

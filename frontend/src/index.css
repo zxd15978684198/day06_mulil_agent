@@ -1,0 +1,193 @@
+@import 'tailwindcss';
+
+/*
+ * 设计令牌层（多主题版）
+ * ---------------------------------------------------------------------------
+ * 底座：awesome-design-md 的 linear.app 设计语言，**只取令牌层**。
+ * 核心原则（整套界面唯一的视觉规则）：
+ *   深色底靠 **surface 阶梯 + 1px 发丝边框** 分层，**不用阴影**。
+ *   亮色主题同理反向：**surface 阶梯向上变白**（卡片比页面白），仍然不用阴影。
+ * 所以令牌表里没有 shadow-* —— 需要"浮起来"的地方一律靠 surface 阶梯 + hairline。
+ *
+ * 换肤机制：Tailwind v4 的 `@theme` 会把变量输出到 `:root`，于是 `bg-surface-1`
+ * 编译出来就是 `background-color: var(--color-surface-1)`。因此在
+ * `html[data-theme='...']` 下覆盖这些变量即可整体换肤 —— **零重建、零组件改动**。
+ * 选择器权重 `html[data-theme]`(0,1,1) > `:root`(0,1,0)，且这些规则不在 @layer 里，
+ * 一定能压过 @theme 输出的那层。
+ */
+
+@theme {
+  /* ---- 默认主题：靛蓝深色（= 原有观感） ---- */
+  --color-surface-0: #0b0c0e;
+  --color-surface-1: #131417;
+  --color-surface-2: #191b1f;
+  --color-surface-3: #21242a;
+
+  --color-hairline: #26282e;
+  --color-hairline-strong: #34373e;
+
+  --color-ink-0: #f7f8f8;
+  --color-ink-1: #b4b8bf;
+  --color-ink-2: #9aa0aa;
+  --color-ink-3: #8a8f98;
+
+  --color-accent: #5e6ad2;
+  --color-accent-hi: #6e79dd;
+  /* 强调色的**文字**角色：必须能在 accent-soft / surface-1 上过 AA，
+     与 accent-hi（按钮 hover 底色）不是一回事 —— 后者要保证白字压得住。 */
+  --color-accent-text: #a5adf5;
+  --color-accent-soft: #1f2140;
+  /* accent 上的文字色：深色主题是白字，亮色主题可能反转，所以必须成令牌 */
+  --color-on-accent: #ffffff;
+
+  --color-ok: #4cb782;
+  --color-ok-soft: #10241b;
+  --color-warn: #d4a72c;
+  --color-warn-soft: #2a220c;
+  --color-danger: #e5484d;
+  --color-danger-soft: #20090b;
+
+  --radius-control: 8px;
+  --radius-card: 12px;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Hiragino Sans GB', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+/* ---- 主题 2：午夜 · 纯黑高对比 ---- */
+html[data-theme='midnight'] {
+  color-scheme: dark;
+  --color-surface-0: #000000;
+  --color-surface-1: #0a0a0c;
+  --color-surface-2: #121215;
+  --color-surface-3: #1a1a1e;
+
+  --color-hairline: #26262b;
+  --color-hairline-strong: #3a3a42;
+
+  --color-ink-0: #ffffff;
+  --color-ink-1: #c8ccd2;
+  --color-ink-2: #a2a8b0;
+  --color-ink-3: #8f959d;
+
+  --color-accent: #7c8cf8;
+  --color-accent-hi: #93a0ff;
+  --color-accent-text: #c3caff;
+  --color-accent-soft: #14162e;
+  --color-on-accent: #0b0c12;
+
+  --color-ok: #57d19a;
+  --color-ok-soft: #06231a;
+  --color-warn: #e5b73c;
+  --color-warn-soft: #2a2208;
+  --color-danger: #ff6b6f;
+  --color-danger-soft: #2e1013;
+}
+
+/* ---- 主题 3：石墨 · 中性灰（柔和、不刺眼） ---- */
+html[data-theme='graphite'] {
+  color-scheme: dark;
+  --color-surface-0: #101012;
+  --color-surface-1: #17171a;
+  --color-surface-2: #1e1e22;
+  --color-surface-3: #26262b;
+
+  --color-hairline: #2c2c31;
+  --color-hairline-strong: #3a3a41;
+
+  --color-ink-0: #f2f2f4;
+  --color-ink-1: #b9b9c0;
+  --color-ink-2: #9a9aa2;
+  --color-ink-3: #8f8f97;
+
+  --color-accent: #3f9e8f;
+  --color-accent-hi: #4fb3a3;
+  --color-accent-text: #6fd3c2;
+  --color-accent-soft: #10241f;
+  --color-on-accent: #06201c;
+
+  --color-ok: #4cb782;
+  --color-ok-soft: #10241b;
+  --color-warn: #d4a72c;
+  --color-warn-soft: #2a220c;
+  --color-danger: #e5484d;
+  --color-danger-soft: #20090b;
+}
+
+/* ---- 主题 4：白昼 · 亮色（surface 阶梯反向：越靠前越白） ---- */
+html[data-theme='daylight'] {
+  color-scheme: light;
+  --color-surface-0: #eef0f2;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f6f7f9;
+  --color-surface-3: #eaecef;
+
+  --color-hairline: #d9dce1;
+  --color-hairline-strong: #c3c7cd;
+
+  --color-ink-0: #14161a;
+  --color-ink-1: #3f444d;
+  --color-ink-2: #4b515b;
+  --color-ink-3: #5f6672;
+
+  --color-accent: #4f46e5;
+  --color-accent-hi: #4338ca;
+  --color-accent-text: #4338ca;
+  --color-accent-soft: #e6e5fb;
+  --color-on-accent: #ffffff;
+
+  --color-ok: #177349;
+  --color-ok-soft: #e3f5ec;
+  --color-warn: #8a5f05;
+  --color-warn-soft: #fdf3dd;
+  --color-danger: #c62b31;
+  --color-danger-soft: #fdecec;
+}
+
+@layer base {
+  html {
+    /* 默认（未设置 data-theme 时）走深色；每个主题会各自覆盖这一项 */
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-surface-0);
+    color: var(--color-ink-0);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* 换肤时给底色一个极短的过渡，避免"啪"地跳变 */
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  /* 键盘可达性：焦点环统一走 accent，不用浏览器默认蓝 */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-hi);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-ink-0);
+  }
+
+  /* 尊重"减少动态效果"：换肤过渡也一起去掉 */
+  @media (prefers-reduced-motion: reduce) {
+    body {
+      transition: none;
+    }
+  }
+}
+
+@layer utilities {
+  /* 滚动条跟表面同色，避免深色界面里出现一条亮白条 */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-hairline-strong) transparent;
+  }
+}

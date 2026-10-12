@@ -1,9 +1,14 @@
 r"""P5 通过信号复现脚本（阶段 4 验收用）。
 
-用法：在仓库根 E:\projects\mutil_agent 下运行
-    uv run python verify_p5.py
+用法（在仓库根运行，或任意目录 —— 路径由脚本自身推导）：
+    uv run python src/test/verify_phase4_repro.py
 
 只读检查，不修改任何数据文件（会比对申请文件的字节数与 sha256 来证明这一点）。
+
+> 2026-10-08 从仓库根移入 `src/test/`（技术方案评审 E11）：它原本散在根目录，与本目录下
+> 的脚本重复、容易被误认为主入口。功能与阶段 4 验收口径一致，覆盖范围已被
+> `acceptance_day06.py` 的场景 9（employee 调审批 → permission_denied）、
+> 场景 13（张伟恰好 3 条）、场景 19（非公开员工不可见）涵盖，此处保留为**最小复现件**。
 """
 
 from __future__ import annotations
@@ -13,11 +18,14 @@ import json
 import sys
 import warnings
 from dataclasses import MISSING, dataclass, fields
+from pathlib import Path
 
 # ToolRuntime 是 pydantic 模型，注入自定义 Context 会打一条无害的序列化告警，屏蔽掉
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
-sys.path.insert(0, "src")  # 从仓库根运行时也能找到包
+# 按脚本自身位置推导仓库根，这样在任何 CWD 下都能跑
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from langchain.tools import ToolRuntime  # noqa: E402
 

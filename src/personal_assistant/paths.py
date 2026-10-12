@@ -8,6 +8,7 @@
 │   ├── personal_assistant/   ← 可安装的代码包（PACKAGE_DIR）
 │   ├── data/                 ← 业务 JSON（含唯一可写文件 day05_device_requests.json）
 │   ├── knowledge/            ← 知识文件 + 权限清单
+│   ├── static/               ← WebAPI 联调页（GET / 返回的 HTML）
 │   └── vector_store/         ← Chroma 索引
 └── ...
 ```
@@ -38,6 +39,7 @@ PROJECT_ROOT = SRC_ROOT.parent  # → 仓库根（pyproject.toml、.env 所在�
 DATA_DIR = SRC_ROOT / "data"
 KNOWLEDGE_DIR = SRC_ROOT / "knowledge"
 VECTOR_STORE_DIR = SRC_ROOT / "vector_store"
+STATIC_DIR = SRC_ROOT / "static"
 ENV_PATH = PROJECT_ROOT / ".env"
 
 

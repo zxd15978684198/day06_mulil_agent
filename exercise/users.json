@@ -1,0 +1,128 @@
+[
+    {
+        "id": 1,
+        "username": "zhangsan",
+        "full_name": "张三",
+        "role": "string",
+        "active": true
+    },
+    {
+        "id": 2,
+        "username": "xiaohong",
+        "full_name": "小红",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 3,
+        "username": "xiaogang",
+        "full_name": "小刚",
+        "role": "student",
+        "active": false
+    },
+    {
+        "id": 4,
+        "username": "lihua",
+        "full_name": "李华",
+        "role": "student",
+        "active": true
+    },
+    {
+        "id": 5,
+        "username": "wangfang",
+        "full_name": "王芳",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 6,
+        "username": "zhangwei",
+        "full_name": "张伟",
+        "role": "student",
+        "active": false
+    },
+    {
+        "id": 7,
+        "username": "liuyang",
+        "full_name": "刘洋",
+        "role": "student",
+        "active": true
+    },
+    {
+        "id": 8,
+        "username": "chenjie",
+        "full_name": "陈杰",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 9,
+        "username": "zhaomin",
+        "full_name": "赵敏",
+        "role": "student",
+        "active": true
+    },
+    {
+        "id": 10,
+        "username": "sunlei",
+        "full_name": "孙磊",
+        "role": "student",
+        "active": false
+    },
+    {
+        "id": 11,
+        "username": "zhouyan",
+        "full_name": "周燕",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 12,
+        "username": "wujun",
+        "full_name": "吴军",
+        "role": "student",
+        "active": true
+    },
+    {
+        "id": 13,
+        "username": "zhenglan",
+        "full_name": "李兰",
+        "role": "admin",
+        "active": true
+    },
+    {
+        "id": 14,
+        "username": "fengchao",
+        "full_name": "冯超",
+        "role": "student",
+        "active": false
+    },
+    {
+        "id": 15,
+        "username": "chenyu",
+        "full_name": "李宇",
+        "role": "student",
+        "active": true
+    },
+    {
+        "id": 16,
+        "username": "郭德纲",
+        "full_name": "guodegang",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 17,
+        "username": "郭德纲1",
+        "full_name": "guodegang1",
+        "role": "teacher",
+        "active": true
+    },
+    {
+        "id": 18,
+        "username": "郭德纲1",
+        "full_name": "guodegang1",
+        "role": "teacher",
+        "active": true
+    }
+]
