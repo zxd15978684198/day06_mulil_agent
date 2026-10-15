@@ -3,6 +3,27 @@
 本目录是「为多 Agent 员工助手加一层 Web 前端」这件事的**过程证据**：每个阶段一份流程文档，记录该阶段实际跑了什么、结果如何、偏差在哪。
 执行方式：**连续执行不停顿**（原计划的"每阶段硬停等审批"被撤销），所有阶段一次跑完。
 
+> ⚠️ **持久化升级后（2026-10）的执行说明 —— 先读这一段**
+>
+> 设备申请与审批的写入已从 `src/data/day05_device_requests.json` 换到 **MySQL
+> `agent_service.device_requests` 表**（见 `docs/状态持久化升级计划.md`）。因此下面各流程文档里
+> 凡出现 `Copy-Item .tmp/... src/data/day05_device_requests.json -Force` 的**还原步骤都已失效**：
+> 它不再还原数据（那份 JSON 已不是写目标），跑完只会在库里留下脏数据。
+>
+> 正确做法：
+>
+> * **备份 / 还原**改用测试侧工具 `src/test/db_state.py`：
+>   ```
+>   uv run python -c "import sys; from pathlib import Path; sys.path[:0]=['src','src/test']; import db_state; print(db_state.load_requests_backup(Path('.tmp/day05_device_requests.backup.json')))"
+>   ```
+>   （备份用 `dump_requests_backup`，参数同形。）
+> * **基线**：**以库中实际行数为准** —— 总条数会随验收/网页联调漂移（历史值 19 → 20），
+>   测试自带备份还原，**不要求你手改任何数字**；稳定的不变量是员工 `zhang_wei`（USR-001）可见 **4 条**。
+> * 各文档里的**浏览器流程步骤本身仍然有效**，只有"还原"这一步换成上面这条。
+>
+> P0/P1/P7/P8 与本文件正文**未逐句改写**（那需要重跑一遍浏览器验证）；统一以本说明为准 ——
+> 属于已知的、故意留下的文档债，记在计划 §10.5。
+
 ---
 
 ## 阶段文档

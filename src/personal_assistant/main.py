@@ -9,14 +9,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 import warnings
 
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from personal_assistant.knowledge_base import (
     INDEX_MANIFEST_PATH,
     ensure_writable_tempdir,
+    warm_up_vector_store,
 )
 from personal_assistant.multi_agent import (
     MultiAgentApplication,
@@ -24,6 +28,7 @@ from personal_assistant.multi_agent import (
     message_text,
     outer_trace,
 )
+from personal_assistant.paths import checkpoint_path
 
 
 def ask(prompt: str) -> str | None:
@@ -70,7 +75,7 @@ def print_result(result: dict) -> None:
                         print("  内层业务 Tool：", "、".join(business_tools))
 
 
-def handle_interrupts(
+async def handle_interrupts(
     app: MultiAgentApplication, session: UserSession, result: dict
 ) -> dict:
     """显示确认内容，并用同一 Thread 恢复暂停的执行。"""
@@ -99,18 +104,21 @@ def handle_interrupts(
         approved = bool(answer) and answer in {"y", "yes", "是", "确认"}
 
         # 复用原 session，也就是复用原 thread_id 和 Context。
-        result = app.resume(session, approved=approved)
+        result = await app.resume(session, approved=approved)
     return result
 
 
-def login_loop(app: MultiAgentApplication) -> None:
+async def login_loop(app: MultiAgentApplication) -> None:
     while True:
         username = ask("\n教学账号（/quit 退出）：")
         if username is None or username == "/quit":
             return
 
         try:
-            session = app.start_session(username)
+            # restore=True：CLI 也纳入跨重启恢复（计划 §7 `R6` 被 `U7` 的答复推翻）
+            # —— 同一账号重进时复用 `agent_threads` 里登记的 thread_id，历史与
+            # 未决确认都还在；查不到才新建。
+            session = app.start_session(username, restore=True)
         except (ValueError, PermissionError) as exc:
             print(f"登录失败：{exc}")
             continue
@@ -132,8 +140,8 @@ def login_loop(app: MultiAgentApplication) -> None:
 
             try:
                 # 固定主流程：运行一轮 -> 处理确认 -> 打印结果。
-                result = app.chat(session, user_text)
-                result = handle_interrupts(app, session, result)
+                result = await app.chat(session, user_text)
+                result = await handle_interrupts(app, session, result)
                 print_result(result)
             except Exception as exc:  # noqa: BLE001 —— 单轮失败不退出登录循环
                 print(f"本轮执行失败：{type(exc).__name__}: {exc}")
@@ -160,9 +168,40 @@ def main() -> None:
             "尚未构建向量库，请先运行 build_index.py（uv run python build_index.py）"
         )
 
-    app = MultiAgentApplication()
-    print("Day06 多 Agent 新员工助手已启动。")
-    login_loop(app)
+    asyncio.run(amain())
+
+
+def _warm_up_in_background() -> None:
+    """预热知识库索引（冷启动实测 22.97s；热了之后一次检索 22–144ms）。
+
+    失败不影响会话：真正的检索路径会照原样报出可操作的错误。
+    """
+
+    ok, detail = warm_up_vector_store()
+    print(f"[预热] 知识库索引{'就绪' if ok else '未就绪'}：{detail}")
+
+
+async def amain() -> None:
+    """打开共享检查点（SQLite）后进入登录循环。
+
+    `AsyncSqliteSaver` 只有异步接口，所以整个 CLI 走 `asyncio.run`：一条连接在
+    进程存活期间被所有会话共用（课件 Day05 §7.2「共享检查点」），退出时由
+    `async with` 负责关闭 —— 这就是「重启后还有历史」的总开关。
+    """
+
+    async with AsyncSqliteSaver.from_conn_string(str(checkpoint_path())) as checkpointer:
+        app = MultiAgentApplication(checkpointer=checkpointer)
+
+        # 预热只读索引：用 daemon 线程而不是启动期阻塞 —— 登录与打字的时间足够它加载完，
+        # 而且不占用默认线程池（否则 `asyncio.run` 退出时还要等它跑完）。
+        threading.Thread(
+            target=_warm_up_in_background,
+            name="warm-up-vector-store",
+            daemon=True,
+        ).start()
+
+        print("Day06 多 Agent 新员工助手已启动。")
+        await login_loop(app)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ MODEL_PROVIDER 和 MODEL_NAME」，而你去检查 `.env` 发现明明写好了�
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # src/personal_assistant/paths.py
@@ -41,6 +42,33 @@ KNOWLEDGE_DIR = SRC_ROOT / "knowledge"
 VECTOR_STORE_DIR = SRC_ROOT / "vector_store"
 STATIC_DIR = SRC_ROOT / "static"
 ENV_PATH = PROJECT_ROOT / ".env"
+
+# 运行期产物目录（LangGraph 会话检查点 SQLite）。不入库：见 .gitignore 的 `runtime/`。
+# 放在**仓库根**而不是 `src/` 下：它不是业务数据，而是「进程状态的落盘」——
+# 换机器或要清状态时整目录删掉即可，不牵动任何业务数据。
+RUNTIME_DIR = PROJECT_ROOT / "runtime"
+CHECKPOINT_DB_DEFAULT = "runtime/checkpoints.sqlite3"
+
+
+def checkpoint_path() -> Path:
+    """把 `CHECKPOINT_DB` 解析成不依赖启动目录的绝对路径，并确保父目录存在。
+
+    为什么不能用 CWD 相对路径（课件 §7.1 的要点）：从别的目录启动 uvicorn 时
+    会在那儿新建一个**空的**检查点库，现象是「重启后历史全没了」，而文件确实存在，
+    极难排查。所以相对路径一律按 `PROJECT_ROOT` 解析。
+
+    这里顺带 `load_dotenv(ENV_PATH, override=False)`：让本函数单独被调用时也读得到
+    `.env`（幂等，且不覆盖已存在的环境变量）。
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv(ENV_PATH, override=False)
+    raw = (os.getenv("CHECKPOINT_DB") or CHECKPOINT_DB_DEFAULT).strip()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _assert_layout() -> None:

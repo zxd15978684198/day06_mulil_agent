@@ -3,7 +3,8 @@ r"""P5 通过信号复现脚本（阶段 4 验收用）。
 用法（在仓库根运行，或任意目录 —— 路径由脚本自身推导）：
     uv run python src/test/verify_phase4_repro.py
 
-只读检查，不修改任何数据文件（会比对申请文件的字节数与 sha256 来证明这一点）。
+只读检查，不修改任何业务数据（会比对 `device_requests` 表的行摘要 —— 内容长度 +
+sha256 + 行数 —— 来证明这一点）。
 
 > 2026-10-08 从仓库根移入 `src/test/`（技术方案评审 E11）：它原本散在根目录，与本目录下
 > 的脚本重复、容易被误认为主入口。功能与阶段 4 验收口径一致，覆盖范围已被
@@ -13,7 +14,6 @@ r"""P5 通过信号复现脚本（阶段 4 验收用）。
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 import warnings
@@ -26,12 +26,12 @@ warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 # 按脚本自身位置推导仓库根，这样在任何 CWD 下都能跑
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 让 `import db_state` 可用
 
 from langchain.tools import ToolRuntime  # noqa: E402
 
+import db_state  # noqa: E402
 import personal_assistant.business_tools as bt  # noqa: E402
-
-REQUESTS = bt.DEVICE_REQUESTS_PATH
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ class Ctx:
 
 def runtime_for(username: str) -> ToolRuntime:
     """按教学账号构造一个可信 Runtime Context（与 Agent 注入的等价）。"""
-    u = bt.login_as(username)
+    u = db_state.login_user(username)
     ctx = Ctx(u["user_id"], u["username"], u["display_name"], u["role"], u["department_id"])
     kwargs: dict[str, object] = {}
     for f in fields(ToolRuntime):
@@ -64,27 +64,31 @@ def call(tool_obj, payload: dict) -> dict:
     return json.loads(tool_obj.invoke(payload))
 
 
-def digest() -> tuple[int, str]:
-    raw = REQUESTS.read_bytes()
-    return len(raw), hashlib.sha256(raw).hexdigest()[:16]
+def digest() -> tuple[int, str, int]:
+    """申请表的库版摘要：``(内容长度, sha256[:16], 行数)``。
+
+    旧版读 `day05_device_requests.json` 的字节数与 sha256；数据源换成
+    `agent_service.device_requests` 表之后，对应物是 `db_state.requests_snapshot()`。
+    """
+    return db_state.requests_snapshot()
 
 
 ZHANG = runtime_for("zhang_wei")
 WANG = runtime_for("wang_fang")
 
 print("=" * 70)
-print("① employee 直接调审批 -> permission_denied，且申请文件字节不变")
+print("① employee 直接调审批 -> permission_denied，且申请表内容不变")
 print("=" * 70)
 before = digest()
-print(f"   调用前: 字节数={before[0]} sha256={before[1]}")
+print(f"   调用前: 内容长度={before[0]} sha256={before[1]} 行数={before[2]}")
 result = call(
     bt.approve_device_request,
     {"request_id": "REQ-2026-0001", "decision": "approved", "runtime": ZHANG},
 )
 print("   返回  :", json.dumps(result, ensure_ascii=False))
 after = digest()
-print(f"   调用后: 字节数={after[0]} sha256={after[1]}")
-print("   字节不变:", before == after, "| error == permission_denied:",
+print(f"   调用后: 内容长度={after[0]} sha256={after[1]} 行数={after[2]}")
+print("   表内容不变:", before == after, "| error == permission_denied:",
       result.get("error") == "permission_denied")
 
 print()
@@ -103,7 +107,7 @@ print("   越界字段（应为空）:", sorted(set(one) - set(bt.PUBLIC_EMPLOYE
 
 print()
 print("=" * 70)
-print("③ 张伟（employee）查申请：恰好本人 3 条")
+print("③ 张伟（employee）查申请：只应看到本人的申请（不写条数——条数会随数据变化而漂移，逐条核对 user_id 才是不变量）")
 print("=" * 70)
 res = call(bt.query_device_requests, {"runtime": ZHANG})
 data = res["data"]
@@ -111,7 +115,7 @@ print(f"   scope={data['scope']} count={data['count']}")
 for item in data["requests"]:
     print(f"     {item['request_id']}  {item['device_id']:16} status={item['status']}")
 res_hr = call(bt.query_device_requests, {"runtime": WANG})
-print(f"   HR scope={res_hr['data']['scope']} count={res_hr['data']['count']}（应为全部 18 条）")
+print(f"   HR scope={res_hr['data']['scope']} count={res_hr['data']['count']}（HR 应看到全部申请，不按人过滤——同样不写死条数）")
 
 print()
 print("=" * 70)
@@ -160,4 +164,4 @@ print("   身份缺失时 create_device_request ->",
            {"device_id": "DEV-MONITOR-24", "quantity": 1, "reason": "x", "runtime": NO_IDENTITY}).get("error"))
 
 print()
-print("最终：申请文件字节数/摘要 =", digest(), "（应与 ① 的调用前完全一致）")
+print("最终：申请表内容长度/摘要/行数 =", digest(), "（应与 ① 的调用前完全一致）")

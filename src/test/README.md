@@ -64,9 +64,10 @@ uv run python src/test/acceptance_day06.py --list          # 只列场景清单
 
 ### 数据安全
 
-* 第 7、10 条会写 `src/data/day05_device_requests.json`。脚本开始时**备份**到
-  `.tmp/acceptance_backup_device_requests.json`，结束时**还原**，并打印前后
-  `(字节数, sha256前16位, 条数)` 三元组证明还原成功 —— **验收留痕，仓库回到 18 条**。
+* 第 7、10 条会写 **MySQL 的 `device_requests` 表**（不再是 `src/data/day05_device_requests.json`）。
+  脚本开始时用 `db_state.dump_requests_backup()` **备份**到 `.tmp/acceptance_backup_device_requests.json`，
+  结束时用 `db_state.load_requests_backup()` **还原**，并打印前后
+  `(内容长度, sha256前16位, 行数)` 三元组证明还原成功 —— **验收留痕，库回到验收前的行数**。
 * 第 12 条真的移走 `src/vector_store/`，用 `finally` 保证移回，并显式释放进程内的
   Chroma 句柄（`_release_vector_store()`），否则 `os.rename` 会因文件占用失败。
 * ⚠️ **本脚本不允许并发执行**：已用 `.tmp/acceptance.lock`（内含 PID）做单实例锁，

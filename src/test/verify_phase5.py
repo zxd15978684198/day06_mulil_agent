@@ -25,9 +25,9 @@
      补全成可独立理解的 task
   B5 `/logout` 效果：新会话拿到**新 `thread_id`**，新 thread 里看不到旧对话
 
-**只读保证**：全程不写 `src/data/`；脚本开头与结尾各取一次
-`day05_device_requests.json` 的字节数与 sha256 做对比。B1–B3 的副作用写入
-`.tmp/` 下的临时文件，结束时清理。
+**只读保证**：全程不写业务数据；脚本开头与结尾各取一次
+`device_requests` 表的行摘要（`db_state.requests_snapshot()`：内容长度 + sha256 + 行数）
+做对比。B1–B3 的副作用写入 `.tmp/` 下的临时文件，结束时清理。
 
 **B 组的模型依赖**：B1–B5 需要 `.env` 里配置好可用的 `MODEL_PROVIDER` /
 `MODEL_NAME` / `API_KEY` / `BASE_URL`。若模型没有按预期调用工具，B1 会判
@@ -37,7 +37,6 @@ FAIL 并打印原始返回，便于区分「机制不成立」与「模型没照
 from __future__ import annotations
 
 import builtins
-import hashlib
 import io
 import json
 import sys
@@ -53,6 +52,7 @@ warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # 让 `import db_state` / `import sync_app` 可用
 
 from langchain.agents import create_agent  # noqa: E402
 from langchain.tools import ToolRuntime, tool  # noqa: E402
@@ -60,12 +60,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa
 from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from langgraph.types import Command, interrupt  # noqa: E402
 
+import db_state  # noqa: E402
+from sync_app import SyncApplication  # noqa: E402
+
 import personal_assistant.main as cli  # noqa: E402
 import personal_assistant.knowledge_base as kb  # noqa: E402
-from personal_assistant.business_tools import (  # noqa: E402
-    DEVICE_REQUESTS_PATH,
-    RunContext,
-)
+from personal_assistant.business_tools import RunContext  # noqa: E402
 from personal_assistant.multi_agent import (  # noqa: E402
     MultiAgentApplication,
     outer_trace,
@@ -122,9 +122,14 @@ def tools_of(agent: Any) -> list[str]:
     raise RuntimeError(f"取不到工具集合：{[type(c).__name__ for c in candidates]}")
 
 
-def digest(path: Path) -> tuple[int, str]:
-    raw = path.read_bytes()
-    return len(raw), hashlib.sha256(raw).hexdigest()[:16]
+def digest() -> tuple[int, str, int]:
+    """申请表的库版摘要：``(内容长度, sha256[:16], 行数)``。
+
+    旧版读 `day05_device_requests.json` 的字节数与 sha256；数据源换成
+    `agent_service.device_requests` 表之后，对应物是 `db_state.requests_snapshot()`。
+    元组从 2 位变 3 位（多出行数），但判定逻辑只看整体相等，所以比较与打印都不用改。
+    """
+    return db_state.requests_snapshot()
 
 
 @dataclass(frozen=True)
@@ -155,7 +160,7 @@ def runtime_with(context: Any) -> ToolRuntime:
 # ==========================================================================
 
 
-def check_a1(app: MultiAgentApplication) -> None:
+def check_a1(app: SyncApplication) -> None:
     actual = {
         "knowledge_agent": tools_of(app.knowledge_agent),
         "employee_service_agent": tools_of(app.employee_service_agent),
@@ -194,7 +199,7 @@ def check_a2() -> None:
     record("A2 specialist_result 只回三个字段且可 json.loads", ok, detail)
 
 
-def check_a3(app: MultiAgentApplication) -> None:
+def check_a3(app: SyncApplication) -> None:
     employee_tools = tools_of(app._build_supervisor("employee"))
     hr_tools = tools_of(app._build_supervisor("hr"))
     ok = (
@@ -209,7 +214,7 @@ def check_a3(app: MultiAgentApplication) -> None:
     )
 
 
-def check_a4(app: MultiAgentApplication) -> None:
+def check_a4(app: SyncApplication) -> None:
     for role in ("employee", "hr"):
         tools = tools_of(app._build_supervisor(role))
         leaked = sorted(set(tools) & set(BUSINESS_TOOLS))
@@ -298,7 +303,7 @@ def check_a7() -> None:
         return len(hit) == 1, [sorted(m) for m in assistant_items]
 
     try:
-        app_model = MultiAgentApplication().model  # 应用真实入口
+        app_model = MultiAgentApplication(checkpointer=InMemorySaver()).model  # 应用真实入口
         app_ok, app_fields = carried_by(app_model)
         kb_model, name, source = kb.build_chat_model()
         kb_ok, _kb_fields = carried_by(kb_model)
@@ -477,7 +482,7 @@ def run_r1_checks() -> None:
 # ==========================================================================
 
 
-def _b4_attempt(app: MultiAgentApplication) -> tuple[bool, str, Any]:
+def _b4_attempt(app: SyncApplication) -> tuple[bool, str, Any]:
     """跑一次两轮对话并给出判定。返回 (是否通过, 证据, 会话)。"""
     session = app.start_session("zhang_wei")
     question1 = "公司介绍里说北京总部主要承担哪些职能？"
@@ -528,7 +533,7 @@ def _b4_attempt(app: MultiAgentApplication) -> tuple[bool, str, Any]:
     return ok, detail, session
 
 
-def check_b4(app: MultiAgentApplication) -> Any:
+def check_b4(app: SyncApplication) -> Any:
     """多轮上下文。
 
     ⚠️ 这条依赖**模型行为**（是否把代词补全、回答是否切题），因此会偶发不通过。
@@ -548,7 +553,7 @@ def check_b4(app: MultiAgentApplication) -> Any:
     return session
 
 
-def check_b5(app: MultiAgentApplication, old_session: Any) -> None:
+def check_b5(app: SyncApplication, old_session: Any) -> None:
     new_session = app.start_session("wang_fang")
     fresh_state = new_session.supervisor.get_state(
         {"configurable": {"thread_id": new_session.thread_id}}
@@ -580,11 +585,14 @@ def check_b5(app: MultiAgentApplication, old_session: Any) -> None:
 
 def main() -> int:
     kb.ensure_writable_tempdir()
-    before = digest(DEVICE_REQUESTS_PATH)
+    before = digest()
     print("=" * 78)
     print("第五阶段通过信号测试 —— A 组：确定性检查")
     print("=" * 78)
-    app = MultiAgentApplication()
+    # 用例只需要内存检查点（`InMemorySaver`），但 `chat`/`resume` 是 async，
+    # 本文件是同步写的 —— 用 `SyncApplication` 薄壳把这两个方法包成同步，
+    # 下面所有 `app.chat(...)` 调用点字面上不用动。
+    app = SyncApplication(MultiAgentApplication(checkpointer=InMemorySaver()))
     check_a1(app)
     check_a2()
     check_a3(app)
@@ -604,7 +612,7 @@ def main() -> int:
     if SIDE_EFFECT.exists():
         SIDE_EFFECT.unlink()
 
-    after = digest(DEVICE_REQUESTS_PATH)
+    after = digest()
     print()
     print("=" * 78)
     print("汇总")
@@ -617,9 +625,9 @@ def main() -> int:
     print(f"共 {len(RESULTS)} 项："
           f"PASS {sum(1 for _, v, _ in RESULTS if v == 'PASS')}，"
           f"FAIL {len(failed)}，SKIP {len(skipped)}")
-    print(f"申请文件字节数/摘要 {before} -> {after} | 只读: {before == after}")
+    print(f"申请表内容长度/摘要/行数 {before} -> {after} | 只读: {before == after}")
     if before != after:
-        print("!! 测试过程中改动了 src/data/day05_device_requests.json，这是缺陷")
+        print("!! 测试过程中改动了 device_requests 表，这是缺陷")
     return 1 if (failed or before != after) else 0
 
 

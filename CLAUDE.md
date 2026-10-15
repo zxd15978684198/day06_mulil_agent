@@ -31,7 +31,7 @@ python build_index.py                # must run before main.py; writes vector_st
 python main.py                       # interactive CLI
 ```
 
-There is no test suite, no linter config, and no CI. Verification is by the fixed acceptance scenarios in Day06 §12.1: check the Supervisor's Agent-Tool calls, the specialists' business-Tool calls, the final answer, **and** the actual state of `data/day05_device_requests.json` — all four must agree.
+There is no test suite, no linter config, and no CI. Verification is by the fixed acceptance scenarios in Day06 §12.1: check the Supervisor's Agent-Tool calls, the specialists' business-Tool calls, the final answer, **and** the actual state of the `device_requests` table (`src/test/acceptance_day06.py --only …`) — all four must agree. The `src/data/*.json` files are historical baselines only.
 
 CLI verbs: `/logout` switches accounts (new `RunContext`, new Supervisor, new `thread_id`), `/quit` exits. Write operations print an `interrupt()` payload and prompt `y`/`n`.
 
@@ -57,8 +57,8 @@ messages → Supervisor ─┬─ ask_knowledge_agent        → search_company_
 | --- | --- | --- |
 | `messages` | user's natural language | LangGraph state |
 | Runtime Context | trusted `user_id` / `role` / `department_id` | `RunContext` frozen dataclass, injected by the app |
-| Checkpoint | per-thread message history + interrupt position | `InMemorySaver` keyed by `thread_id` |
-| Business data | request IDs, statuses | the JSON files in `data/` |
+| Checkpoint | per-thread message history + interrupt position | `AsyncSqliteSaver` (file from `CHECKPOINT_DB`, default `runtime/checkpoints.sqlite3`) keyed by `thread_id`; **survives restart**, opened once at startup and shared by all Supervisors |
+| Business data | request IDs, statuses | MySQL database `agent_service` via SQLAlchemy ORM (account `agent_app` has SELECT/INSERT/UPDATE/DELETE only). `src/data/*.json` are now **historical baselines**, not read at runtime |
 
 Account switching creates a new Context, Supervisor and `thread_id`, so conversation history does not carry over — but HR still reads the same shared business data.
 
@@ -70,11 +70,11 @@ The Supervisor must **rewrite** the task before delegating — resolve pronouns 
 
 ## Invariants when editing
 
-- **Identity comes from login data only.** Chat claims like "我是 HR" must never alter `RunContext`. `login_as()` reads `day05_users.json`; `frozen=True` blocks field mutation.
+- **Identity comes from login data only.** Chat claims like "我是 HR" must never alter `RunContext`. `get_login_user(db, username)` reads the `users` table (it replaced `login_as()`, which read `day05_users.json`); `frozen=True` blocks field mutation.
 - **Filter knowledge at retrieval time**, not after. Once unauthorized text reaches the model context, the boundary is already crossed. Use `allowed_roles` — `access_scope` is display-only, and directory names carry no authority.
 - **Never wrap an Agent Tool in a broad `try/except`.** Inner write tools suspend with LangGraph `interrupt()`; catching that signal breaks human confirmation and resumption. `Command(resume={"approved": ...})` must reuse the original `thread_id` and context.
 - **`chat()` submits only the new turn.** The checkpointer replays history from `thread_id`; re-sending prior messages duplicates the conversation.
-- **Only `data/day05_device_requests.json` is mutated.** The other three JSONs and everything under `knowledge/` are read-only. To reset, re-copy from Day05.
+- **Only the `device_requests` table is mutated.** Everything under `knowledge/` and the other JSON baselines are read-only. Test suites back up and restore that table automatically via `src/test/db_state.py`.
 - **Keep the `day05_` filename prefixes.** They look stale but are intentional — the course reuses Week14/Day05 artifacts verbatim.
 
 ## Data and knowledge contracts

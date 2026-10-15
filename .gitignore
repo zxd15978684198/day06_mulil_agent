@@ -16,3 +16,9 @@ wheels/
 
 # torch inductor 编译缓存（加载 Embedding 模型时自动生成）
 torchinductor_*/
+
+# 状态持久化运行期产物：LangGraph 检查点 SQLite 与 runall 目录
+# （见 docs/状态持久化升级计划.md 步骤 S0）
+runtime/
+*.sqlite3
+*.sqlite3-*

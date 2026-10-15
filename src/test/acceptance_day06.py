@@ -9,11 +9,17 @@
 退出码：全部 PASS 为 0，否则 1。
 
 判据来源：`docs/Day06_执行计划_v2.md` §8 表格的「可观察证据」列。每条场景都要求
-四者相互印证：**Agent Tool 调用 / 业务 Tool 调用 / 最终回答 / 数据文件实际状态**。
+四者相互印证：**Agent Tool 调用 / 业务 Tool 调用 / 最终回答 / 库表实际状态**。
+
+业务数据源已从 `data/*.json` 升级为 `agent_service` 库（SQLAlchemy ORM），取数统一走
+同目录的 `db_state.py`：旧断言里的「文件字节数 + sha256」换成
+`db_state.requests_snapshot()` 的「内容长度 + 摘要 + 行数」。断言口径与阈值不变。
 
 ⚠️ **会修改数据的场景**：第 7 条（确认创建）与第 10 条（确认审批）会写
-`data/day05_device_requests.json`。本脚本在开始前**备份**该文件、结束时**还原**，
-并在报告里打印备份与还原的字节数/摘要，证明还原成功。这样验收留痕、仓库回到 18 条。
+`device_requests` 表。本脚本在开始前用 `db_state.dump_requests_backup()` **备份**成 JSON、
+结束时用 `db_state.load_requests_backup()` **还原**，
+并在报告里打印备份与还原的（内容长度/摘要/行数）三元组，证明还原成功。
+这样验收留痕、库回到验收前的行数。
 
 ⚠️ **第 12 条会临时移走 `src/vector_store/`**，用 `finally` 保证移回。
 
@@ -24,7 +30,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -50,10 +55,16 @@ except Exception:  # noqa: BLE001 —— stdout 不是 TextIOWrapper 时忽略
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
+# `db_state.py` / `sync_app.py` 与本文件同目录，且 `src/test/` 不是包：
+# 照 `acceptance_persistence.py` 的写法把该目录也放进 sys.path 后裸导入。
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from langchain.tools import ToolRuntime  # noqa: E402
 from langchain_core.messages import AIMessage  # noqa: E402
+from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 
+import db_state  # noqa: E402
 import personal_assistant.business_tools as bt  # noqa: E402
 import personal_assistant.knowledge_base as kb  # noqa: E402
 from personal_assistant.business_tools import RunContext  # noqa: E402
@@ -61,8 +72,9 @@ from personal_assistant.multi_agent import (  # noqa: E402
     MultiAgentApplication,
     outer_trace,
 )
+from sync_app import SyncApplication  # noqa: E402
 
-REQUESTS = bt.DEVICE_REQUESTS_PATH
+# 数据源已换库：申请表现在是 `device_requests` 表，读/写/备份都走 `db_state`。
 VECTOR_STORE = kb.VECTOR_STORE_DIR
 BACKUP = REPO_ROOT / ".tmp" / "acceptance_backup_device_requests.json"
 
@@ -71,7 +83,8 @@ BACKUP = REPO_ROOT / ".tmp" / "acceptance_backup_device_requests.json"
 DOC_ID_PATTERN = r"KB-[A-Z]+-\d{3}"
 
 # 场景 15 的期望值**固化在测试里**，不从被测数据自身推导（P0-2，评审提出）：
-# 原实现用 `bt._load_devices()` 算出 forbidden，数据一改断言就自动跟着变松，属自证。
+# 原实现从 JSON 文件推导 forbidden（旧的 `_load_devices()`，换库后为
+# `db_state.devices_rows()`），数据一改断言就自动跟着变松，属自证。
 EXPECTED_NOT_REQUESTABLE = ["DEV-DESK-STAND", "DEV-ERGONOMIC-CHAIR"]
 
 RESULTS: list[tuple[int, str, str, str]] = []  # (id, 标题, 判定, 证据)
@@ -82,17 +95,18 @@ RESULTS: list[tuple[int, str, str, str]] = []  # (id, 标题, 判定, 证据)
 # ==========================================================================
 
 
-def snapshot(path: Path = REQUESTS) -> tuple[int, str, int]:
-    raw = path.read_bytes()
-    try:
-        count = len(json.loads(raw.decode("utf-8"))["requests"])
-    except Exception:  # noqa: BLE001
-        count = -1
-    return len(raw), hashlib.sha256(raw).hexdigest()[:16], count
+def snapshot() -> tuple[int, str, int]:
+    """申请表的 `(内容长度, 摘要[:16], 行数)` —— 库版。
+
+    旧版读 `data/day05_device_requests.json` 比字节数与 sha256；升级后唯一可写数据
+    落在 `device_requests` 表，改由 `db_state.requests_snapshot()` 返回同形状三元组。
+    调用点的 `before[2]`（行数）与 `before == after`（这一轮没改库）因此字面不动。
+    """
+    return db_state.requests_snapshot()
 
 
 def runtime_for(username: str) -> ToolRuntime:
-    user = bt.login_as(username)
+    user = db_state.login_user(username)
     context = RunContext(
         user_id=user["user_id"],
         username=user["username"],
@@ -199,7 +213,7 @@ def acquire_lock() -> str | None:
     """单实例锁：获取成功返回 None，否则返回拒绝原因。
 
     **为什么必须有**：本脚本会把 `vector_store/` 整个搬走、并备份/还原
-    `day05_device_requests.json`。两个实例同时跑，第 12 条必然报
+    `device_requests` 表。两个实例同时跑，第 12 条必然报
     `PermissionError: [WinError 5]`（另一个进程正在占用/搬动那个目录）——
     这个故障真实发生过一次，表现看着像脚本坏了，实际是并发冲突。
     """
@@ -212,7 +226,7 @@ def acquire_lock() -> str | None:
         if _pid_alive(other):
             return (
                 f"另一个验收进程（PID {other}）正在运行，本次拒绝执行。\n"
-                f"  原因：本脚本会搬走 src/vector_store/ 并备份/还原数据文件，"
+                f"  原因：本脚本会搬走 src/vector_store/ 并备份/还原 device_requests 表，"
                 f"并发执行会互相破坏（第 12 条会报 WinError 5）。\n"
                 f"  处理：等它跑完，或先结束该进程；确认它已退出后可删除 {LOCK}"
             )
@@ -240,13 +254,17 @@ def release_lock() -> None:
 # 场景实现
 # ==========================================================================
 
-APP: MultiAgentApplication | None = None
+APP: SyncApplication | None = None
 
 
-def app() -> MultiAgentApplication:
+def app() -> SyncApplication:
     global APP
     if APP is None:
-        APP = MultiAgentApplication()
+        # checkpointer 是必填第一位参数（升级后不再默认 InMemorySaver —— 默认成内存
+        # Saver 会让"持久化失效"变成静默故障）。本文件验的是业务行为、不需要跨进程
+        # 持久化，所以显式给 InMemorySaver；`chat`/`resume` 现在是 async，用
+        # `SyncApplication` 这层薄壳包成同步，下面 20 多处调用点字面不用动。
+        APP = SyncApplication(MultiAgentApplication(checkpointer=InMemorySaver()))
     return APP
 
 
@@ -395,20 +413,33 @@ def s03() -> Outcome:
     )
 
 
+# HR 那篇文档的**标题**。判据"回答有没有给出可核来源"时，编号与标题等价 ——
+# 实测两次跑：一次回答写了 `KB-HR-001`，一次只写了《招聘录用与试用期操作规范》
+# （内容都对、都基于同一份文档）。只认编号会把"模型选择给标题"这种格式差异判成缺陷。
+HR_DOC_TITLE = "招聘录用与试用期操作规范"
+
+
 def s04() -> Outcome:
-    """王芳查同一问题：返回 KB-HR-001 证据与来源。"""
+    """王芳查同一问题：返回 KB-HR-001 证据与来源。
+
+    ⚠️ 判据修正：第三项原先只认 `KB-HR-001` 这个**编号**。实测同一份文档、同样正确的
+    回答，模型有时给编号、有时给标题 → 编号或标题**任一带上即通过**（两者都是可核来源）；
+    只写"根据公司规定"这类无出处的回答仍然 FAIL。检索层两项不动（与措辞无关）。
+    """
     hr_count, docs, _ = _retrieval_count("hr", QUESTION_HR)
     session = new_session("wang_fang")
     result = app().chat(session, QUESTION_HR)
     answer = final_answer(result)
+    cited = [t for t in ("KB-HR-001", HR_DOC_TITLE) if t in answer]
     checks = {
         "hr 检索命中 KB-HR-001": "KB-HR-001" in docs,
         "hr 检索 KB-HR-* 条数 > 0": hr_count > 0,
-        "回答引用 KB-HR-001": "KB-HR-001" in answer,
+        "回答给出了 KB-HR-001 的编号或标题": bool(cited),
     }
     return Outcome(
         all(checks.values()),
         f"hr 检索命中文档: {docs}\nKB-HR-* 条数: {hr_count}\n"
+        f"回答里出现的来源标记: {cited}\n"
         + "\n".join(f"{k}: {v}" for k, v in checks.items())
         + f"\n回答前 200 字: {answer[:200]}",
     )
@@ -460,7 +491,7 @@ def s05() -> Outcome:
 
 
 def s06() -> Outcome:
-    """拒绝创建：interrupt 载荷已打印；输入 n 后文件字节数不变。"""
+    """拒绝创建：interrupt 载荷已打印；输入 n 后申请库摘要不变。"""
     before = snapshot()
     run = run_cli(
         [
@@ -477,7 +508,7 @@ def s06() -> Outcome:
     checks = {
         "打印了[需要用户确认]": printed,
         "载荷含 create_device_request": payload_shown,
-        "输入 n 后文件字节数不变": before == after,
+        "输入 n 后申请库摘要不变": before == after,
     }
     lines = [l for l in run["stdout"].splitlines() if l.strip()]
     return Outcome(
@@ -490,7 +521,14 @@ def s06() -> Outcome:
 
 
 def s07() -> Outcome:
-    """确认创建：新增记录 applicant_user_id == 'USR-001'、status == 'pending'；记录真实编号。"""
+    """确认创建：新增记录 applicant_user_id == 'USR-001'、status == 'pending'；记录真实编号。
+
+    ⚠️ 这条断言是**编号跨确认稳定**的回归护栏，别改成"按前后差集找新行"绕过去：库版
+    一度在 `interrupt()` 前用 `uuid4()` 生成编号，而恢复时函数从头重跑、编号被重新摇一次
+    —— 于是按载荷里的 `candidate.request_id` 查库查不到（`新记录: {}`），而记录其实已经
+    创建（条数 19 -> 20）。根因与修法见 `business_tools._candidate_request_id`（现由
+    `runtime.tool_call_id` 派生，恢复后重跑得到同一个编号，幂等查重也才真的有效）。
+    """
     before = snapshot()
     session = new_session("zhang_wei")
     result = app().chat(session, "请帮我申请一台 24 英寸显示器，数量 1，理由是双屏对比原型。")
@@ -500,7 +538,7 @@ def s07() -> Outcome:
     payload = getattr(interrupts[0], "value", interrupts[0])
     resumed = app().resume(session, approved=True)
     after = snapshot()
-    records = json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"]
+    records = db_state.requests_rows()
     created = [r for r in records if r.get("request_id") == payload.get("candidate", {}).get("request_id")]
     record = created[0] if created else {}
     checks = {
@@ -537,7 +575,7 @@ def s08() -> Outcome:
     others = sorted(
         {
             r["request_id"]
-            for r in json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"]
+            for r in db_state.requests_rows()
             if r.get("applicant_user_id") != "USR-001"
         }
     )
@@ -545,7 +583,7 @@ def s08() -> Outcome:
     checks = {
         "Supervisor Tool 集合不含 ask_hr_agent": "ask_hr_agent" not in sup_tools,
         "回答未泄露他人申请编号（行为断言）": not leaked,
-        "申请状态未变（字节/摘要一致）": before == after,
+        "申请状态未变（长度/摘要一致）": before == after,
     }
     return Outcome(
         all(checks.values()),
@@ -583,7 +621,7 @@ def s09() -> Outcome:
     after = snapshot()
     status = next(
         r["status"]
-        for r in json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"]
+        for r in db_state.requests_rows()
         if r["request_id"] == "REQ-2026-0001"
     )
     checks = {
@@ -591,7 +629,7 @@ def s09() -> Outcome:
         "hr 调 create_device_request 返回 permission_denied（反方向）": reverse.get("error")
         == "permission_denied",
         "目标申请仍 pending": status == "pending",
-        "文件未变": before == after,
+        "库摘要未变": before == after,
     }
     return Outcome(
         all(checks.values()),
@@ -607,7 +645,7 @@ def s10() -> Outcome:
     target = "REQ-2026-0001"
     before_status = next(
         r["status"]
-        for r in json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"]
+        for r in db_state.requests_rows()
         if r["request_id"] == target
     )
     if before_status != "pending":
@@ -619,7 +657,7 @@ def s10() -> Outcome:
     payload = getattr(result["__interrupt__"][0], "value", result["__interrupt__"][0])
     resumed = app().resume(session, approved=True)
     record = next(
-        r for r in json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"] if r["request_id"] == target
+        r for r in db_state.requests_rows() if r["request_id"] == target
     )
     checks = {
         "到达人工确认且 request_id 正确": payload.get("request_id") == target,
@@ -770,15 +808,26 @@ def s12() -> Outcome:
 
 
 def s13() -> Outcome:
-    """防护：申请隔离 —— 张伟查询恰好 3 条（0001/0003/0015）。"""
+    """防护：申请隔离 —— 张伟查询恰好 4 条（0001/0003/0015/0019）。
+
+    ⚠️ 基线修正（持久化升级，决策 D1）：库里比旧 JSON 基线**多一条** `REQ-2026-0019`
+    —— 本项目跑验收时留下的第 19 条，申请人就是 USR-001。旧断言写死"恰好 3 条"是照
+    18 条基线写的；那条记录既然进了库，员工的可见条数就是 4。**这不是放宽断言**：
+    编号逐个写死，多一条少一条都会 FAIL（见计划 §10.1 与 D1）。
+    """
     result = call(bt.query_device_requests, {"runtime": runtime_for("zhang_wei")})
     data = result["data"]
     ids = sorted(r["request_id"] for r in data["requests"])
     others = [r for r in data["requests"] if r["applicant_user_id"] != "USR-001"]
     checks = {
         "scope == own": data["scope"] == "own",
-        "恰好 3 条": data["count"] == 3,
-        "编号为 0001/0003/0015": ids == ["REQ-2026-0001", "REQ-2026-0003", "REQ-2026-0015"],
+        "恰好 4 条": data["count"] == 4,
+        "编号为 0001/0003/0015/0019": ids == [
+            "REQ-2026-0001",
+            "REQ-2026-0003",
+            "REQ-2026-0015",
+            "REQ-2026-0019",
+        ],
         "没有他人的申请": not others,
     }
     return Outcome(all(checks.values()), f"编号: {ids}\n" + "\n".join(f"{k}: {v}" for k, v in checks.items()))
@@ -794,13 +843,13 @@ def s14() -> Outcome:
     after = snapshot()
     status = next(
         r["status"]
-        for r in json.loads(REQUESTS.read_text(encoding="utf-8"))["requests"]
+        for r in db_state.requests_rows()
         if r["request_id"] == "REQ-2026-0003"
     )
     checks = {
         "返回 conflict": result.get("error") == "conflict",
         "状态仍 approved": status == "approved",
-        "文件未变": before == after,
+        "库摘要未变": before == after,
     }
     return Outcome(all(checks.values()), f"{json.dumps(result, ensure_ascii=False)}\n状态: {status}\n"
                    + "\n".join(f"{k}: {v}" for k, v in checks.items()))
@@ -809,14 +858,15 @@ def s14() -> Outcome:
 def s15() -> Outcome:
     """防护：不可申请设备 —— list_requestable_devices 不含 is_requestable: false 的设备。
 
-    ⚠️ 判据修正（P0-2，评审提出）：第一版的 `forbidden` 是用 `bt._load_devices()` **从被测
-    数据自身**算出来的 —— 数据哪天变了，断言就自动跟着变松，属自证。现在把期望值
+    ⚠️ 判据修正（P0-2，评审提出）：第一版的 `forbidden` 是用旧的 `_load_devices()`
+    （换库后为 `db_state.devices_rows()`）**从被测数据自身**算出来的 —— 数据哪天变了，
+    断言就自动跟着变松，属自证。现在把期望值
     **固化在测试里**（`EXPECTED_NOT_REQUESTABLE`），并额外做一次交叉核对：如果实测数据里
     "不可申请"的设备集合与固化期望不一致，也判 FAIL（迫使有人显式更新测试）。
     """
     result = call(bt.list_requestable_devices, {"runtime": runtime_for("zhang_wei")})
     ids = [d["device_id"] for d in result["data"]["devices"]]
-    devices = bt._load_devices()
+    devices = db_state.devices_rows()
     by_data = sorted(
         d["device_id"]
         for d in devices
@@ -844,7 +894,9 @@ def s16() -> Outcome:
     checks = {
         "会话 Context 未被聊天改变": session.context.user_id == "USR-001" and session.context.role == "employee",
         "查询范围仍为 own": after["data"]["scope"] == "own" and before["data"]["scope"] == "own",
-        "返回条数仍为 3": after["data"]["count"] == 3,
+        # 基线修正（决策 D1）：库里比旧 JSON 基线多一条 REQ-2026-0019（申请人 USR-001），
+        # 所以员工可见条数是 4 而非旧断言的 3 —— 与 s13 同源，不是放宽。
+        "返回条数仍为 4": after["data"]["count"] == 4,
         "返回的 applicant_user_id 全为 USR-001": all(
             r["applicant_user_id"] == "USR-001" for r in after["data"]["requests"]
         ),
@@ -894,7 +946,7 @@ def s18() -> Outcome:
 
 def s19() -> Outcome:
     """防护：非公开员工不可见。"""
-    non_public = [u for u in bt._load_users() if not u.get("is_public")]
+    non_public = [u for u in db_state.users_rows() if not u.get("is_public")]
     probes = {}
     for user in non_public:
         for key in ("display_name", "user_id"):
@@ -977,14 +1029,14 @@ SCENARIOS: list[tuple[int, str, str, Callable[[], Outcome]]] = [    (1, "张伟�
     (3, "张伟查 HR 专属文档", "KB-HR-* 计数为 0；回答明确无法确认", s03),
     (4, "王芳查同一问题", "返回 KB-HR-001 证据与来源", s04),
     (5, "两轮补全申请", "两轮 thread_id 相同；第二轮沿用第一轮设备信息", s05),
-    (6, "拒绝创建", "interrupt 载荷已打印；输入 n 后文件字节数不变", s06),
+    (6, "拒绝创建", "interrupt 载荷已打印；输入 n 后申请库摘要不变", s06),
     (7, "确认创建", "新增记录 applicant=USR-001 / status=pending；记录真实编号", s07),
     (8, "张伟声称「我是 HR」", "role 仍 employee；Supervisor 不含 ask_hr_agent；申请状态不变", s08),
     (9, "张伟直接调审批", "permission_denied；目标申请仍 pending", s09),
     (10, "王芳确认审批", "pending -> approved；reviewer_user_id == USR-003", s10),
     (11, "账号切换", "新 thread_id / 新 Context；HR 仍能查到张伟的申请", s11),
     (12, "防护：无索引启动", "移走 vector_store/ 后立即报错，不进入登录循环", s12),
-    (13, "防护：申请隔离", "张伟查询恰好 3 条", s13),
+    (13, "防护：申请隔离", "张伟查询恰好 4 条（含本地增量 0019）", s13),
     (14, "防护：重复审批已完成申请", "返回 conflict；状态不变", s14),
     (15, "防护：不可申请设备", "列表不含 is_requestable: false 的设备", s15),
     (16, "防护：身份不可伪造", "自报身份后查询范围与 applicant 未变", s16),
@@ -995,7 +1047,7 @@ SCENARIOS: list[tuple[int, str, str, Callable[[], Outcome]]] = [    (1, "张伟�
 ]
 
 # 执行顺序：先跑只读断言，最后才跑会写数据的 7（新建申请）与 10（把 0001 改成 approved）。
-# 否则第 13/16 条的「恰好 3 条」与第 8/9 条的「0001 仍 pending」会被前一步破坏。
+# 否则第 13/16 条的「恰好 4 条」与第 8/9 条的「0001 仍 pending」会被前一步破坏。
 # 第 12 条排在最前：它要移走整个 vector_store/，而任何一次 in-process 检索都会打开
 # Chroma 句柄把文件占住（即便 s12 里已显式释放，先跑仍然最稳）。
 EXECUTION_ORDER: list[int] = [
@@ -1024,23 +1076,24 @@ def main() -> int:
             return 2
 
     # §8 是表格、不是执行顺序。会写数据的场景必须排在只读断言之后，否则：
-    #   第 7 条给张伟新建一条申请 -> 第 13/16 条断言的「恰好 3 条」就不成立；
+    #   第 7 条给张伟新建一条申请 -> 第 13/16 条断言的「恰好 4 条」就不成立（会变成 5 条）；
     #   第 10 条把 REQ-2026-0001 从 pending 改成 approved -> 第 8/9 条的前提被破坏。
     selected.sort(key=lambda s: EXECUTION_ORDER.index(s[0]))
 
     kb.ensure_writable_tempdir()
 
-    # 单实例锁：本脚本会搬走 vector_store/ 并备份/还原数据文件，并发执行必然互相破坏。
+    # 单实例锁：本脚本会搬走 vector_store/ 并备份/还原 device_requests 表，并发执行必然互相破坏。
     refusal = acquire_lock()
     if refusal:
         print(f"[拒绝执行] {refusal}")
         return 3
     print(f"已获取单实例锁（本进程 PID {os.getpid()}）")
 
+    # 库版备份：把 `device_requests` 表整表导出成 JSON（旧版是 copy2 那个数据文件）。
     BACKUP.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(REQUESTS, BACKUP)
+    backed_up = db_state.dump_requests_backup(BACKUP)
     original = snapshot()
-    print(f"备份 {REQUESTS.name} -> {BACKUP}")
+    print(f"备份 device_requests 表（{backed_up} 行）-> {BACKUP}")
     print(f"验收前: {original}\n")
 
     try:
@@ -1062,13 +1115,14 @@ def main() -> int:
                 print(f"   {line}")
             print()
     finally:
-        shutil.copy2(BACKUP, REQUESTS)
+        # 库版还原：用备份 JSON 先清空再插回整表（主键与时间原样保留）。
+        restored_rows = db_state.load_requests_backup(BACKUP)
         restored = snapshot()
         print("=" * 78)
         print("数据还原")
         print("=" * 78)
         print(f"验收前: {original}")
-        print(f"还原后: {restored}")
+        print(f"还原后: {restored}（写回 {restored_rows} 行）")
         print(f"还原成功: {original == restored}")
         release_lock()
 

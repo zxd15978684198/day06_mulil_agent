@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -916,6 +917,10 @@ SEARCH_K = 5
 # 向量库句柄缓存：Embedding 模型加载较慢，一次会话内复用。
 # 注意这是**只读索引**（不是 B3 所说的业务 JSON），重建索引后需新进程才生效。
 _vector_store_cache: Chroma | None = None
+# 并发修复（本次性能优化）：预热线程与首个请求可能同时进 `_open_vector_store()`。
+# 没有锁时两边会各自加载一次 embedding 模型（实测冷启动 22.97s）并各建一个 Chroma 客户端，
+# 后赋值的覆盖先赋值的 —— 结果只是浪费，但"预热"的意义正是**只付一次**。
+_vector_store_lock = threading.Lock()
 
 
 def _open_vector_store() -> Chroma:
@@ -929,7 +934,10 @@ def _open_vector_store() -> Chroma:
     （允许手工调过索引的场景）。
     """
     global _vector_store_cache
-    if _vector_store_cache is None:
+    with _vector_store_lock:
+        # 拿到锁后再看一次：预热线程可能已经在等锁期间把它建好了
+        if _vector_store_cache is not None:
+            return _vector_store_cache
         # 临时目录由入口脚本适配；库侧只检查，不可用就给可操作的错误
         _require_usable_tempdir()
         embeddings, _model_name = _build_embeddings()
@@ -952,7 +960,29 @@ def _open_vector_store() -> Chroma:
                 f"{expected} 不一致 —— 索引可能不是最新，建议重建。"
             )
         _vector_store_cache = store
-    return _vector_store_cache
+        return _vector_store_cache
+
+
+def warm_up_vector_store() -> tuple[bool, str]:
+    """预热只读索引：把 embedding 模型与 Chroma 句柄提前建好。
+
+    **为什么需要**（实测数据，不是推测）：`_open_vector_store()` 冷启动 **22.97s**
+    （本地 sentence-transformers 权重加载 + Chroma 首次打开），而热了之后一次检索只要
+    **22–144ms**。服务启动前不预热，就变成"重启后第一个知识问题多等 23 秒" ——
+    用户看到的就是"这个功能怎么忽快忽慢"。
+
+    **不抛异常**：预热失败（索引没建、临时目录不可写…）不应该让服务起不来，
+    真正的检索路径仍会按原样报出可操作的错误。返回 `(是否成功, 说明)`。
+    """
+    import time as _time
+
+    t0 = _time.perf_counter()
+    try:
+        store = _open_vector_store()
+    except Exception as exc:  # noqa: BLE001 —— 预热不允许把服务拖死
+        return False, f"{type(exc).__name__}: {exc}"
+    chunks = store._collection.count()  # noqa: SLF001 —— 回显用的是同一处计数
+    return True, f"{chunks} chunks / {_time.perf_counter() - t0:.1f}s"
 
 
 def _manifest_chunk_count() -> int | None:

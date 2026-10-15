@@ -46,7 +46,7 @@
 | §8 端到端验收 `src/test/acceptance_day06.py` | **20/20 PASS**——项目记录，⚠️ **见下方数据基线警告，现已失效** |
 | 前端 `P0`–`P11`（含三档追加需求） | 全部执行完毕，阶段证据见 [`frontend/test/`](frontend/test/README.md) |
 | 索引 | 10 份资料 / 36 chunk / 解析失败 0 |
-| 业务数据 | 19 条设备申请（唯一可写文件；基线见 §10） |
+| 业务数据 | 设备申请（真源 = MySQL `agent_service.device_requests` 表；条数随验收/网页测试漂移，**以库中实际为准**） |
 
 **这不是「课件代码照抄」**：目录布局改成了 src 布局，路径解析、权限过滤、切分参数、
 模型构造等处都有对课件的有意偏离，**每一条都登记在
@@ -54,26 +54,20 @@
 前端对 `frontend/` 与后端接口的每一条约定都冻结在
 [`frontend/CONTRACTS.md`](frontend/CONTRACTS.md)（`C1`–`C9` 契约 / `K1`–`K11` 坑 / `D1`–`D6` 构建契约）。
 
-### ⚠️ 数据基线漂移（未修，跑验收前必读）
+### 数据基线：以库为真源（跑验收前必读）
 
-`src/data/day05_device_requests.json` 当前是 **19 条**，张伟（`USR-001`）名下 **4 条**
-（`0001` / `0003` / `0015` / **`0019`**）。多出来的 `REQ-2026-0019` 是前端联调期间创建的，
-**没有回滚**（`frontend/CONTRACTS.md` §四.2 已把 19 条登记为新基线，但 CLI 测试没跟着改）。
+写入目标是 **MySQL `agent_service.device_requests` 表**；`src/data/*.json` 已退为历史基线、运行期不再读写。
 
-后果：`acceptance_day06.py` 的场景 **13**（以及同样断言张伟条数的场景 16）
-断言的是「恰好 3 条（`0001`/`0003`/`0015`）」（`src/test/acceptance_day06.py:773-781`），
-**现在跑必然 FAIL**。这是数据漂移，不是机制缺陷。
-
-两条基线目前互相冲突：
-
-| 出处 | 基线 |
-| --- | --- |
-| `README` / `src/test/README.md` | 18 条，sha256 前16位 `0e23b39cd1eb3022…` |
-| `frontend/CONTRACTS.md` / `frontend/test/README.md` | **19 条**，sha256 前16位 `393e3009b1baf63a` |
-| 磁盘实际 | **19 条**（张伟 4 条） |
-
-**要跑 CLI 验收，先把 `REQ-2026-0019` 删掉、还原到 18 条**；否则请把
-`acceptance_day06.py:780-781` 的期望值一并更新到 4 条 —— 二选一，别让"通过"变成假信号。
+* **不需要为了跑测试手工删任何数据。** `acceptance_day06.py` 开始时自己备份
+  （`db_state.dump_requests_backup()`）、结束时自己还原（`load_requests_backup()`），并打印前后
+  `(内容长度, sha256前16位, 行数)` 三元组；`verify_phase5.py` / `verify_phase4_repro.py` 是**只读**的，
+  用同一摘要前后比对自证。
+* **不要在任何文档或断言里写死总条数** —— 它会在每次验收/网页联调后漂移（历史值：19 → 20）。
+  稳定的不变量是**按用户过滤后的条数**：`USR-001`（`zhang_wei`）名下 **4 条**
+  （`0001`/`0003`/`0015`/`0019`）。场景 13/16 的断言已按这个不变量写死（`acceptance_day06.py` 的 s13/s16），
+  按编号逐个核对，多一条少一条都会 FAIL。
+* 历史遗留：`README` 与 `frontend/CONTRACTS.md` 曾各自登记 18 条 / 19 条的 **JSON** 基线并互相冲突；
+  **该冲突随「JSON 不再是写目标」一并失效**——两份数字只用于历史比对，不再是验收前置条件。
 
 ---
 
@@ -102,8 +96,8 @@ Tool。好处是：Supervisor 的上下文里不出现业务细节，专业 Agen
 | --- | --- | --- |
 | `messages` | 用户自然语言 | LangGraph state |
 | `RunContext` | **可信**的 `user_id` / `role` / `department_id` | frozen dataclass，由应用注入，**聊天内容改不了它** |
-| Checkpointer | 每个 thread 的消息历史与中断位置 | `InMemorySaver`，按 `thread_id` 索引 |
-| 业务数据 | 申请编号、状态 | `src/data/*.json` |
+| Checkpointer | 每个 thread 的消息历史与中断位置 | `AsyncSqliteSaver`（位置由 `CHECKPOINT_DB` 决定，默认 `runtime/checkpoints.sqlite3`），按 `thread_id` 索引，**跨重启保留**；应用启动时开一次、被所有 Supervisor 共享 |
+| 业务数据 | 申请编号、状态 | MySQL 库 `agent_service`（SQLAlchemy ORM；账号 `agent_app` 只有 SELECT/INSERT/UPDATE/DELETE）。`src/data/*.json` 已退为**历史基线**，运行期不再读写 |
 
 切账号 = 新 `RunContext` + 新 Supervisor + 新 `thread_id`（**对话历史不跨账号**），
 但业务数据是共享的 —— 所以 HR 仍能查到员工刚提交的申请。
@@ -133,9 +127,10 @@ Web：ConfirmationCard ─► POST /api/confirmation ─────────
    │  POST /api/confirmation   人工确认    → AgentReply（含 trace）
    ▼
 FastAPI（agent_api.py）
-   ├─ lifespan：检查索引存在 → 否则**启动即失败**
+   ├─ lifespan：检查索引存在 → 否则**启动即失败**；同时开**共享** `AsyncSqliteSaver`（退出时 `engine.dispose()`）
    ├─ app.state.agent ：全进程**一个** MultiAgentApplication（复用 embedding 模型，不每请求重建）
-   └─ app.state.sessions / pending_confirmations / active_streams ：**进程内存**，重启即清空
+   └─ app.state.sessions / active_streams ：**进程内缓存**（重启即空，但**会话不再依赖它**）
+       └─ 缓存未命中 → 按 `agent_threads` + 检查点 `restore_session()` 重建；待确认状态**读检查点**（原 `pending_confirmations` 已删除）
 ```
 
 三个关键设计（详见 [`frontend/CONTRACTS.md`](frontend/CONTRACTS.md)）：
@@ -189,7 +184,8 @@ mutil_agent/
     │   ├── agent_api.py          ← ⭐ FastAPI 入口：3 条业务路由 + SSE + 静态托管
     │   ├── schemas.py            ← 请求/响应 Pydantic 模型（LoginRequest/ChatRequest/…）
     │   └── __main__.py           ← 支持 `python -m personal_assistant`
-    ├── data/                     ← 4 份业务 JSON（**只有 day05_device_requests.json 会被写**）
+    ├── data/                     ← 4 份业务 JSON（**历史基线，运行期不再读写**；真源是 MySQL `agent_service`）
+    ├── runtime/                  ← `checkpoints.sqlite3`（会话检查点，`CHECKPOINT_DB` 指定；已 gitignore）
     ├── knowledge/                ← 10 份知识文件 + day05_knowledge_manifest.json
     ├── vector_store/             ← Chroma 索引 + index_manifest.json（可用 build_index.py 重建）
     ├── static/                   ← ⭐ 前端**构建产物**（index.html + assets/），FastAPI 挂在 /static
@@ -367,7 +363,7 @@ FastAPI 自带 `/docs`（Swagger UI），三条业务路由都能直接调；`/`
 | 发消息 | 走 SSE，回答逐字打出；右栏实时显示 agent 步骤 |
 | 写操作 | 弹出确认卡片（按 `action` 分派模板）；**待确认期间输入框禁用** |
 | 刷新页面 | 账号、消息列表、未决确认卡片都恢复 |
-| 后端重启后刷新 | 第一次拿到 **404** → 清会话回登录页，**不静默重登** |
+| 后端重启后刷新 | 会话**不再失效**——后端按 `agent_threads` + 检查点 `restore_session()` 重建（消息列表、未决确认卡片都还在）。只有重建也失败时才回到 **404** → 清会话回登录页，**不静默重登** |
 | `Ctrl` / `⌘` + `B` | 折叠 / 展开**左栏**（沿用 VS Code 语义）。右栏**故意不给快捷键**，只在边缘按钮上切换（`frontend/src/lib/layout.ts:9-10,18`） |
 
 **localStorage 键**（`frontend/src/lib/`）：
@@ -451,12 +447,16 @@ node ..\.tmp\tw_check.cjs
 
 ### 9.3 数据还原（**跑完务必做**）
 
-唯一可写文件是 `src/data/day05_device_requests.json`。两个测试套件的基线目前**不一致**（见 §1），
-按你要跑哪一套来还原：
+写操作落在 MySQL 的 `device_requests` 表——**运行期不再写 `src/data/*.json`**。两个测试套件的基线目前**不一致**（见 §1）：
+
+* `acceptance_day06.py` 结束时**自动还原**（`db_state.load_requests_backup()`），并打印还原前后的 `(内容长度, sha256前16位, 行数)`；
+* `verify_phase5.py` / `verify_phase4_repro.py` 只读，用同一个摘要前后比对自证（`digest()`）。
+
+**还原后请核对行数与摘要**（**以库中实际行数为准**——总条数会随验收/网页测试漂移，历史值 19 → 20；
+稳定的不变量是 `USR-001` 名下 4 条）；对不上说明还原失败。需要手工回灌时：
 
 ```powershell
-# 前端套件基线（19 条 / sha256 前16位 393e3009b1baf63a）
-Copy-Item .tmp/day05_device_requests.backup.json src/data/day05_device_requests.json -Force
+uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; print(db_state.load_requests_backup('.tmp/day05_device_requests.backup.json'))"
 ```
 
 ---
@@ -466,7 +466,8 @@ Copy-Item .tmp/day05_device_requests.backup.json src/data/day05_device_requests.
 * **ID 是稳定的连接键**：`USR-` / `DEPT-` / `DEV-` / `REQ-`。名字要回原文件解析，不要冗余存储。
 * 申请状态恰好三种：`pending` / `approved` / `rejected`。**已完成的申请不能再次审批**
   （重复审批返回 `conflict`）。"批准"只表示**已审批**，不代表已发设备。
-* **只有 `src/data/day05_device_requests.json` 会被写**（当前 **19 条**，见 §1 的基线警告）：
+* **运行期只有 `device_requests` 表会被写**（条数以库中实际为准，见 §1 的基线说明）：
+  `src/data/day05_device_requests.json` 是历史基线，**不再被读写**（`README` 里凡以它为准的说法都只用于历史比对）：
 
   | 申请人 | 申请编号 | 状态 |
   | --- | --- | --- |
@@ -553,7 +554,7 @@ Copy-Item .tmp/day05_device_requests.backup.json src/data/day05_device_requests.
 | 多中断只确认第一个 | `handle_interrupts()` 用 `interrupts[0]`（课件实现如此）；`len(interrupts) > 1` 时会打印显式告警 |
 | `reason` 字段是间接注入通道 | 用户输入落盘后又被 HR Agent 读进上下文（有人工确认兜底，未验证可利用性） |
 | 权限收紧后重建的回归用例缺失 | 没有测试验证「改小某文档的 `allowed_roles` → 重建 → 旧角色检索确实为 0」；需要真的改数据并重建索引（约 3 分钟） |
-| Web 会话是**进程内存** | 后端一重启，所有 `session_id` 失效；除 404 外没有任何"查询会话状态"的接口，前端无法提前探测（契约 `C4`） |
+| Web 会话**不再依赖**进程内存 | 会话状态落在检查点（`runtime/checkpoints.sqlite3`）+ `agent_threads`，后端重启后旧 `session_id` 仍可用（契约 `C4`）；仍未变的限制是——除 404/自动重建外没有"查询会话状态"的接口，前端无法**提前**探测 |
 | 侧边栏宽度**不可拖拽** | 见 §7.2；二值折叠，无 splitter |
 | `approve_device_request` 的前端渲染**从未端到端实测** | 要走到它需要「HR + 一条 pending 申请」；`frontend/test/P7_流程文档.md:140` 自述这是"唯一没有端到端实测的分支" |
 | 前端**没有测试框架** | `package.json` 无 `test` script、未引入 vitest；`test/logic-check.ts` 也不在类型检查范围内（`tsconfig.app.json` 只 `include: ["src"]`），只能手工 `node` 跑 |
@@ -585,7 +586,7 @@ Copy-Item .tmp/day05_device_requests.backup.json src/data/day05_device_requests.
 | `ModuleNotFoundError: No module named 'langchain'` | 用了系统 Python 而不是本项目 `.venv` | 一律走 `uv run` |
 | 多步工具调用偶发失败但重跑就好 | 见 §12.1 | 读 A7 是否 PASS |
 | 验收脚本报"另一个验收进程正在运行"（退出码 3） | 有另一个实例在跑 | 等它结束；确认进程已死可删 `.tmp/acceptance.lock` |
-| **CLI 验收场景 13/16 FAIL**（张伟条数 ≠ 3） | 数据基线漂移（§1） | 删掉 `REQ-2026-0019` 还原到 18 条，或更新断言到 4 条 |
+| **CLI 验收场景 13/16 FAIL**（张伟条数 ≠ 3） | 旧断言按 18 条基线写死 3 条 | **已在持久化升级中修好**：断言改为「恰好 4 条（含本地增量 `REQ-2026-0019`）」并按编号逐个核对 —— **不需要再删任何数据** |
 | 前端 `localhost:5173` 打不开、换 `127.0.0.1:5173` 也不行 | Vite 只绑 `localhost` | 用 `http://localhost:5173` |
 | 前端请求报 CORS | 绕过了 Vite 代理直连 `:8000` | 走 5173，或把前端源加进 `agent_api.py` 的 `allow_origins` |
 | 知识问答"回答中断" | SSE 撞上 90 秒硬超时（`K10`） | 调大 `STREAM_TIMEOUT_SECONDS`，或先热身一次让嵌入模型进内存 |
@@ -650,6 +651,7 @@ uv run python -m uvicorn personal_assistant.agent_api:app --host 127.0.0.1 --por
 cd frontend && npm run dev                        # → http://localhost:5173
 ```
 
-跑完验收后，`src/data/day05_device_requests.json` 会被脚本**自动还原**。当前两套基线不一致
-（CLI 期望 18 条 / `0e23b39cd1eb3022…`，前端冻结 19 条 / `393e3009b1baf63a`），
-**还原后请核对条数与 sha256，确认落在你预期的那条基线上**；对不上说明还原失败或基线已漂移。
+跑完验收后，`device_requests` 表会被脚本**自动还原**。
+**还原后请核对行数与摘要，确认与验收前一致**；对不上说明还原失败。
+（总条数会随验收/网页测试漂移，别把它当基线；稳定的是 `USR-001` 名下 4 条。）
+（`src/data/*.json` 已不是写目标，它的 sha256 基线只用于**历史**比对。）

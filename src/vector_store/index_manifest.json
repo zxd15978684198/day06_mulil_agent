@@ -1,5 +1,5 @@
 {
-  "built_at": "2026-10-08T08:35:27+08:00",
+  "built_at": "2026-10-14T20:48:23+08:00",
   "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
   "collection_name": "day05_knowledge",
   "vector_store_path": "E:\\projects\\mutil_agent\\src\\vector_store",
@@ -21,7 +21,7 @@
     "note": "chunk_size / chunk_overlap 是本计划的工程估计，不是课件规定值"
   },
   "document_count": 10,
-  "chunk_count": 36,
+  "chunk_count": 35,
   "documents": [
     {
       "document_id": "KB-PUB-001",
@@ -141,7 +141,7 @@
         "employee",
         "hr"
       ],
-      "chunk_count": 4
+      "chunk_count": 3
     },
     {
       "document_id": "KB-HR-001",

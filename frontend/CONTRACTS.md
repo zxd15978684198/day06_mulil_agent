@@ -29,13 +29,15 @@
 
 ### C3 · HTTP 409 = 当前会话有未决确认
 
-触发点：`agent_api.py` 的 `/api/chat` 守卫（`session_id in pending_confirmations`）。
+触发点：`agent_api.py` 的 `/api/chat` 守卫（`await has_pending_confirmation(session)`）——**判据是检查点里的未决中断位置**，不再是进程内的 `pending_confirmations`（那个集合已随持久化升级删除）。
 语义：**必须先把确认处理掉**，不是"网络错误"，不是"重试即可"。
 
 ### C4 · HTTP 404 = 会话不存在
 
-`get_session_or_404` 在 `app.state.sessions` 里查不到 `session_id` 即 404。
-**成因是进程内存**：后端一重启，所有旧 `session_id` 全部失效（→ K4）。
+`get_session_or_404` 先在 `app.state.sessions`（**进程内缓存**）里找；**查不到时不再直接 404**，
+而是按 `agent_threads` + 检查点调 `restore_session()` 重建会话（重建时校验 `login_enabled` /
+`account_status` / `role` 三条件），**只有重建也失败才 404**。
+因此**后端重启后旧 `session_id` 仍然有效**（→ K4 的前提已改变）。
 除 404 外**没有任何"查询会话状态"的接口**，前端无法提前探测会话是否还活着。
 
 ### C5 · `approved` 的语义是「是否执行 agent 已决定的动作」
@@ -60,7 +62,7 @@
 | K1 | 累计 trace 直接 append 会指数级重复 | C1 实测；A/B/C 三轮已证 |
 | K2 | `approved: false` 不是"驳回申请" | C5 |
 | K3 | `base` 不按命令切换会**白屏**（资源 404） | `vite.config.ts` D3 |
-| K4 | 后端重启后 localStorage 里的 `session_id` 变死键 | C4 |
+| K4 | ~~后端重启后 localStorage 里的 `session_id` 变死键~~ **已修复**（持久化升级后按 `agent_threads` + 检查点 `restore_session()` 重建；仅重建失败才 404） | C4 |
 | K5 | `emptyOutDir` 会清空 `src/static/`（含原 322 B 占位页） | `vite.config.ts` build 段 |
 | K6 | 待确认期间 `/api/chat` 返回 409 | C3 |
 | K7 | `confirmation` 可能退化成 `{"message": ...}` 而非结构化候选 | `agent_api.py:112` 的非 dict 兜底 |
