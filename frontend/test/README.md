@@ -12,7 +12,7 @@
 >
 > 正确做法：
 >
-> * **备份 / 还原**改用测试侧工具 `src/test/db_state.py`：
+> * **备份 / 还原**改用测试侧工具 `../../src/tests`：
 >   ```
 >   uv run python -c "import sys; from pathlib import Path; sys.path[:0]=['src','src/test']; import db_state; print(db_state.load_requests_backup(Path('.tmp/day05_device_requests.backup.json')))"
 >   ```

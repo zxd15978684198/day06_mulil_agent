@@ -77,6 +77,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(
         String(50), unique=True, index=True, nullable=True
     )
+    password_hash: Mapped[str | None] = mapped_column(String(255),nullable=True)
     display_name: Mapped[str] = mapped_column(String(100))
     role: Mapped[str | None] = mapped_column(String(30), nullable=True)
     login_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

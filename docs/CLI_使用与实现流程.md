@@ -212,7 +212,7 @@ LangChain 解析工具入参时会对工具的 `args_schema` 做一次 `model_du
 
 > 自己写脚本调用工具时如果又见到它，加一行即可：
 > `warnings.filterwarnings("ignore", message="Pydantic serializer warnings")`。
-> 这行在 `src/test/` 的三个脚本里本来就有。
+> 这行在 `../src/tests` 的三个脚本里本来就有。
 
 ---
 

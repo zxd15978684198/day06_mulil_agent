@@ -2,7 +2,7 @@
 
 用法（在仓库根运行）：
 
-    uv run python src/test/verify_phase5.py
+    uv run python src/tests/verify_phase5.py
 
 退出码：全部通过 0，否则 1。逐条打印 PASS / FAIL / SKIP 与判定依据。
 

@@ -3,64 +3,80 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ApiError,
   confirm,
+  createThread,
+  fetchMessages,
+  listThreads,
   streamChat,
   type Confirmation,
+  type HistoryReply,
+  type ThreadInfo,
   type TraceEntry,
 } from '../lib/api'
 import {
   clearHistory,
   loadHistory,
+  loadTraceCursor,
   newMessageId,
   saveHistory,
+  saveTraceCursor,
   type ChatMessage,
 } from '../lib/history'
 import { SIDEBAR_SHORTCUT_HINT, useSidebarHidden, useSidebarShortcut } from '../lib/layout'
-import { saveSession, type StoredSession } from '../lib/session'
+import type { StoredSession } from '../lib/session'
 import { sliceNewTrace } from '../lib/trace'
 import { createTypewriter, type Typewriter } from '../lib/typewriter'
 import { cn } from '../lib/utils'
 import ConfirmationCard from './ConfirmationCard'
+import IdentityCard from './IdentityCard'
 import LiveTraceRail, { type LiveStep } from './LiveTraceRail'
 import MessageBubble from './MessageBubble'
 import SessionPanel from './SessionPanel'
 import ThemeSwitcher from './ThemeSwitcher'
 
-const ROLE_LABEL: Record<string, string> = {
-  employee: '员工',
-  hr: 'HR',
-}
-
 interface ChatViewProps {
   session: StoredSession
-  /** 会话的 `traceCursor` / `pending` 变了要写回上层（上层负责持久化与再渲染） */
+  /** 当前 `threadId` 变了要写回上层（上层负责落盘） */
   onSessionChange: (next: StoredSession) => void
   onSignOut: () => void
   onSessionExpired: () => void
 }
 
 /**
- * 对话页布局。
+ * 把回放接口的响应转成界面消息。
+ * 它**不带轨迹**（trace 只活在检查点里），所以拿不到本地缓存时右栏就是空的。
+ */
+function mapServerMessages(reply: HistoryReply): ChatMessage[] {
+  return reply.messages.map((message) => ({
+    id: newMessageId(),
+    role: message.role,
+    text: message.content,
+  }))
+}
+
+/**
+ * 对话页布局 + 三个数据源的交汇点。
  *
  * ```
- * ┌────────────────────────────────────────────┐
- * │ 顶栏：身份 · 两个侧栏开关 · 主题 · 退出      │
- * ├──────────┬────────────────────┬────────────┤
- * │ 左：身份  │  消息流（768px）    │ 右：本轮轨迹│  ← 三栏只占这一行
- * ├──────────┴────────────────────┴────────────┤
- * │ 输入框（整宽底栏）                           │  ← 侧栏止于其上方
- * └────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────┐
+ * │ 顶栏：身份芯片（悬停→状态卡片） · 主题 · 退出    │
+ * ├──────────┬────────────────────┬──────────────┤
+ * │ 左：会话  │  消息流（768px）    │ 右：本轮轨迹  │  ← 三栏只占这一行
+ * │ 列表卡片  │                    │              │
+ * ├──────────┴────────────────────┴──────────────┤
+ * │ 输入框（整宽底栏）                             │  ← 侧栏止于其上方
+ * └──────────────────────────────────────────────┘
  * ```
  *
- * **输入框为什么在整宽底栏而不是中间那列**：原先它在中间列里，两侧栏就会一直伸到窗口底部、
- * 把输入框那一行夹在两条面板中间，看起来像"侧栏盖住了底部"。
- * 移出来之后侧栏止于输入框上方，底部是一条干净的横栏。
+ * **三个事实来源，职责必须分清**（这是本次改造的核心）：
  *
- * **对齐**：底栏是整宽的，但内层内容用 `pl-64 / pr-80`（= 两侧栏宽度）补成内边距，
- * 于是 `mx-auto max-w-3xl` 恰好落在**中间那一列的中心**，与消息列严格对齐 —— 四种显隐组合都对得上。
+ * | 数据 | 权威来源 | 本地缓存的作用 |
+ * | --- | --- | --- |
+ * | 消息正文、未决确认 | `GET /api/threads/{id}/messages` | 只在条数一致时顶替（它带轨迹） |
+ * | 会话列表 | `GET /api/threads` | 无（一次性请求） |
+ * | `trace` 轨迹 | **只有本地**（服务端不落库） | 唯一的来源 |
  *
- * **侧栏没有断点门槛**：早先写成 `w-0 xl:w-64` + 箭头 `hidden xl:flex`，结果窗口窄于 1280px 时
- * 两个侧栏被自动收成 0、四个箭头也一起 `display:none` —— 面板和开关同时消失。用户要的是
- * 「两个侧边栏可独立隐藏」，手动开关不该被自动规则吃掉，所以这些 `xl:` 门槛已全部去掉。
+ * 所以刷新后的正确行为是：正文和确认卡片来自服务端，右栏的轨迹来自本地。
+ * 换了浏览器就只剩正文 —— 这是诚实的降级，而不是假装有轨迹。
  */
 export default function ChatView({
   session,
@@ -68,18 +84,37 @@ export default function ChatView({
   onSignOut,
   onSessionExpired,
 }: ChatViewProps) {
-  // 惰性初始化：刷新后把本会话的历史读回来，和 traceCursor 成对恢复
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory(session.sessionId))
+  const { token, user, threadId } = session
+
+  const [threads, setThreads] = useState<ThreadInfo[]>([])
+  const [threadsLoading, setThreadsLoading] = useState(true)
+  // 惰性初始化：先拿本地缓存垫一下，紧接着的回放请求会用服务端结果覆盖它
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    threadId === null ? [] : loadHistory(threadId),
+  )
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** 正在被流式填充的那条助手消息 id；null = 当前没有流 */
   const [streamingId, setStreamingId] = useState<string | null>(null)
-  /** 流式期间攒的 agent 级步骤（后端不发累计轨迹，这是右栏中途唯一的信息源） */
+  /** 流式期间攒的 agent 级步骤（右栏中途唯一的信息源） */
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>([])
+  /**
+   * 未决确认。**不再从 localStorage 恢复**，只由两处写入：
+   *   - `GET /messages` 的 `needs_confirmation` + `confirmation`（权威）
+   *   - 流里的 `confirmation` 事件（刚刚中断的这一轮）
+   */
+  const [pending, setPending] = useState<Confirmation | null>(null)
 
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  /** 该会话已经渲染过的累计轨迹条数；按 thread 持久化，切换会话不会串 */
+  const cursorRef = useRef<number>(threadId === null ? 0 : loadTraceCursor(threadId))
+  /**
+   * 刚由前端创建的 thread：它的回放一定是空的，而且此时可能已经有流在跑，
+   * 让那个 effect 去 `setMessages([])` 会把乐观插入的消息清掉。
+   */
+  const skipLoadRef = useRef<string | null>(null)
   /**
    * 打字机实例。放 ref 不放 state：它每帧都会回调一次，进 state 会让整棵树每帧重渲染。
    * 卸载时 dispose，免得 rAF 在组件没了之后还在跑。
@@ -87,7 +122,6 @@ export default function ChatView({
   const typewriterRef = useRef<Typewriter | null>(null)
   useEffect(() => () => typewriterRef.current?.dispose(), [])
 
-  const pending = session.pending
   const locked = pending !== null
 
   // 左右两侧**各自独立**，各自持久化；Ctrl/⌘ + B 只切左栏（编辑器的既定语义）
@@ -106,29 +140,175 @@ export default function ChatView({
   )
   const latestTrace = lastAssistant?.trace ?? []
 
+  const persist = useCallback(
+    (patch: Partial<StoredSession>) => {
+      onSessionChange({ ...session, ...patch })
+    },
+    [onSessionChange, session],
+  )
+
+  /**
+   * 所有接口错误的**唯一**出口。
+   *
+   * 401 直接回登录页（不静默重登：那会在用户不知情时换掉上下文）；
+   * 404 说明当前 thread 没了（被删或换了账号看别人的），于是清掉当前会话、
+   * 刷新列表 —— 而不是把用户踢回登录页，账号本身还是好的。
+   *
+   * 返回一句给用户看的话；已经接管处理的（401）返回空串。
+   */
+  const handleApiError = useCallback(
+    (err: unknown): string => {
+      if (err instanceof ApiError) {
+        if (err.kind === 'unauthorized') {
+          onSessionExpired()
+          return ''
+        }
+        if (err.kind === 'thread_missing') {
+          persist({ threadId: null })
+          setPending(null)
+          setMessages([])
+          return `${err.message}，已回到"未选择会话"状态。`
+        }
+        return err.message
+      }
+      return '请求失败，请重试'
+    },
+    [onSessionExpired, persist],
+  )
+
+  /** 拉会话列表。返回列表，方便调用方接着挑一个（比如刚删掉一个 dead thread）。 */
+  const refreshThreads = useCallback(async (): Promise<ThreadInfo[]> => {
+    try {
+      const list = await listThreads(token)
+      setThreads(list)
+      return list
+    } catch (err) {
+      const message = handleApiError(err)
+      if (message !== '') setError(message)
+      return []
+    } finally {
+      setThreadsLoading(false)
+    }
+  }, [handleApiError, token])
+
+  useEffect(() => {
+    void refreshThreads()
+  }, [refreshThreads])
+
+  /**
+   * 切换会话时回放：**正文与未决确认以服务端为准**，轨迹只能来自本地缓存。
+   *
+   * 只有在"本地条数和服务端条数一致"时才用本地那份 —— 它带着轨迹。
+   * 不一致说明本地缺消息（换了浏览器、清过缓存、或者另一处已经聊过），
+   * 那就用服务端的正文，并把它写回本地，从这一轮起重新积累轨迹。
+   */
+  useEffect(() => {
+    if (threadId === null) {
+      setMessages([])
+      setPending(null)
+      return
+    }
+    if (skipLoadRef.current === threadId) {
+      // 前端刚建的会话：回放必然为空，而流可能已经在跑，绝不能清空 UI
+      skipLoadRef.current = null
+      return
+    }
+
+    let cancelled = false
+    const local = loadHistory(threadId)
+
+    void (async () => {
+      try {
+        const reply = await fetchMessages(token, threadId)
+        if (cancelled) return
+
+        const fromServer = mapServerMessages(reply)
+        if (local.length > 0 && local.length === fromServer.length) {
+          setMessages(local)
+        } else {
+          setMessages(fromServer)
+          saveHistory(threadId, fromServer)
+        }
+
+        setPending(reply.needs_confirmation ? reply.confirmation : null)
+        cursorRef.current = loadTraceCursor(threadId)
+        setError(null)
+      } catch (err) {
+        if (cancelled) return
+        const message = handleApiError(err)
+        if (message !== '') setError(message)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [handleApiError, threadId, token])
+
   const handlePickExample = useCallback((text: string) => {
     setDraft(text)
     setError(null)
     textareaRef.current?.focus()
   }, [])
 
-  /** 写回会话状态（游标 / 待确认）。`session` 是本次渲染的 props，回调里读它是安全的。 */
-  const persistSession = useCallback(
-    (patch: Partial<StoredSession>) => {
-      const next: StoredSession = { ...session, ...patch }
-      saveSession(next)
-      onSessionChange(next)
+  /** 显式新建会话：立刻落库并把界面切过去（空会话，没有历史要拉）。 */
+  const handleCreateThread = useCallback(async () => {
+    if (busy) return
+    setError(null)
+    try {
+      const created = await createThread(token)
+      skipLoadRef.current = created.thread_id
+      setThreads((prev) => [created, ...prev])
+      setMessages([])
+      setPending(null)
+      setLiveSteps([])
+      cursorRef.current = 0
+      saveTraceCursor(created.thread_id, 0)
+      persist({ threadId: created.thread_id })
+      textareaRef.current?.focus()
+    } catch (err) {
+      const message = handleApiError(err)
+      if (message !== '') setError(message)
+    }
+  }, [busy, handleApiError, persist, token])
+
+  const handleSelectThread = useCallback(
+    (nextThreadId: string) => {
+      if (nextThreadId === threadId) return
+      setError(null)
+      setLiveSteps([])
+      setPending(null)
+      cursorRef.current = loadTraceCursor(nextThreadId)
+      persist({ threadId: nextThreadId })
     },
-    [onSessionChange, session],
+    [persist, threadId],
   )
 
-  /** 统一提交一个后端响应：切片轨迹 → 落历史 → 写回会话状态。 */
+  /** 首条消息时才建会话：避免"登录看一眼"就在库里留下空会话。 */
+  const ensureThread = useCallback(async (): Promise<string | null> => {
+    if (threadId !== null) return threadId
+    try {
+      const created = await createThread(token)
+      skipLoadRef.current = created.thread_id
+      setThreads((prev) => [created, ...prev])
+      cursorRef.current = 0
+      saveTraceCursor(created.thread_id, 0)
+      persist({ threadId: created.thread_id })
+      return created.thread_id
+    } catch (err) {
+      const message = handleApiError(err)
+      if (message !== '') setError(message)
+      return null
+    }
+  }, [handleApiError, persist, threadId, token])
+
+  /** 统一提交一个后端响应：切片轨迹 → 落历史 → 更新游标与待确认。 */
   const commit = useCallback(
-    (reply: Awaited<ReturnType<typeof confirm>>, base: ChatMessage[]) => {
-      const { fresh, nextCursor } = sliceNewTrace(reply.trace, session.traceCursor)
+    (reply: Awaited<ReturnType<typeof confirm>>, base: ChatMessage[], activeThreadId: string) => {
+      const { fresh, nextCursor } = sliceNewTrace(reply.trace, cursorRef.current)
 
       const nextMessages = [...base]
-      // 中断轮 answer 是 null（K8），但轨迹仍要展示 —— 它解释了卡片为什么出现。
+      // 中断轮 answer 是 null，但轨迹仍要展示 —— 它解释了卡片为什么出现。
       // 注意：中断轮也**必须推进游标**，否则下一轮会把这一轮的条目再渲染一遍。
       if (fresh.length > 0 || (reply.answer !== null && reply.answer !== '')) {
         nextMessages.push({
@@ -139,35 +319,13 @@ export default function ChatView({
         })
       }
 
-      const nextSession: StoredSession = {
-        ...session,
-        traceCursor: nextCursor,
-        pending: reply.needs_confirmation ? (reply.confirmation ?? null) : null,
-      }
-
+      cursorRef.current = nextCursor
+      saveTraceCursor(activeThreadId, nextCursor)
       setMessages(nextMessages)
-      saveHistory(session.sessionId, nextMessages)
-      saveSession(nextSession)
-      onSessionChange(nextSession)
+      saveHistory(activeThreadId, nextMessages)
+      setPending(reply.needs_confirmation ? (reply.confirmation ?? null) : null)
     },
-    [onSessionChange, session],
-  )
-
-  const handleError = useCallback(
-    (err: unknown, base: ChatMessage[], restoreDraft?: string) => {
-      if (err instanceof ApiError && err.kind === 'session_expired') {
-        // R3 的出口：清 localStorage 回登录页，不做静默重登
-        onSessionExpired()
-        return
-      }
-      // 失败时把乐观插入的用户消息撤回，并把文字还给输入框，
-      // 避免"消息看起来发出去了但 agent 其实没收到"
-      setMessages(base)
-      saveHistory(session.sessionId, base)
-      if (restoreDraft !== undefined) setDraft(restoreDraft)
-      setError(err instanceof ApiError ? err.message : '请求失败，请重试')
-    },
-    [onSessionExpired, session.sessionId],
+    [],
   )
 
   /**
@@ -177,14 +335,17 @@ export default function ChatView({
    *  - 抢在第一个 token 之前就把**助手气泡**插进去（正文为空 + 光标），
    *    否则"发出去了"到"第一个字出现"之间是一段什么都没有的静止期；
    *  - 正文由打字机按帧吐，模型来得多快都不会闪；
-   *  - 轨迹分两路：流里的 `trace` 事件（后端目前不发）优先，
-   *    没有就用 `liveSteps` 兜底，右栏至少能显示"派给了哪个专家"。
+   *  - 轨迹分两路：流里的 `trace` 事件优先，没有就用 `liveSteps` 兜底，
+   *    右栏至少能显示"派给了哪个专家"。
    *
    * **失败分两类，处理方式不同**：
    *  - 流都没建立起来（401/404/409/503/网络）→ `streamChat` 抛 `ApiError`。
    *    这时一个字都没收到，走"撤回乐观消息 + 把文字还给输入框"的老逻辑；
    *  - 流建好之后再断（超时、模型报错）→ 只能收到 `error` 事件。
-   *    已经显示出来的部分回答**保留** —— 把它撤掉只会更让人困惑 —— 另挂一条错误提示。
+   *    已经显示出来的部分回答**保留**，另挂一条错误提示。
+   *
+   * 流异常收尾后**额外做一次回放**：超时可能已经在检查点上留下了一个未决确认，
+   * 而流自己不说这件事 —— 不同步的话用户会看到"发新消息被 409 拦住，却没有任何卡片"。
    */
   const send = useCallback(async () => {
     const text = draft.trim()
@@ -197,12 +358,19 @@ export default function ChatView({
     const base = messages
     const userId = newMessageId()
     const assistantId = newMessageId()
+    setDraft('')
+
+    const activeThreadId = await ensureThread()
+    if (activeThreadId === null) {
+      setBusy(false)
+      return
+    }
+
     setMessages([
       ...base,
       { id: userId, role: 'user', text },
       { id: assistantId, role: 'assistant', text: '' },
     ])
-    setDraft('')
     setStreamingId(assistantId)
 
     // 打字机只认"到目前为止的全文"：它自己比对已吐出的长度，多出来的按帧放。
@@ -222,7 +390,7 @@ export default function ChatView({
     let streamError: string | null = null
 
     try {
-      const outcome = await streamChat(session.sessionId, text, {
+      const outcome = await streamChat(token, activeThreadId, text, {
         onDelta: (delta) => {
           acc += delta
           typer.push(acc)
@@ -248,56 +416,84 @@ export default function ChatView({
 
       const { fresh, nextCursor } =
         traceFromStream !== null
-          ? sliceNewTrace(traceFromStream, session.traceCursor)
-          : { fresh: [] as TraceEntry[], nextCursor: session.traceCursor }
+          ? sliceNewTrace(traceFromStream, cursorRef.current)
+          : { fresh: [] as TraceEntry[], nextCursor: cursorRef.current }
 
       const finalMessages: ChatMessage[] = [...base, { id: userId, role: 'user', text }]
-      // 中断那一轮 answer 是 null（K8）→ 不插助手气泡；但轨迹有内容时仍要留下来
+      // 中断那一轮 answer 是 null → 不插助手气泡；但轨迹有内容时仍要留下来
       if (acc !== '' || fresh.length > 0) {
         finalMessages.push({ id: assistantId, role: 'assistant', text: acc, trace: fresh })
       }
 
+      cursorRef.current = nextCursor
+      saveTraceCursor(activeThreadId, nextCursor)
       setMessages(finalMessages)
-      saveHistory(session.sessionId, finalMessages)
-      persistSession({ traceCursor: nextCursor, pending: confirmation })
+      saveHistory(activeThreadId, finalMessages)
+      setPending(confirmation)
 
-      if (outcome === 'error') setError(streamError ?? '回答中断了，请重试')
+      if (outcome === 'error') {
+        setError(streamError ?? '回答中断了，请重试')
+        // 超时可能已经留下未决确认：问一次服务端，把卡片补出来
+        try {
+          const reply = await fetchMessages(token, activeThreadId)
+          setPending(reply.needs_confirmation ? reply.confirmation : null)
+        } catch {
+          /* 同步失败不影响已经渲染的内容 */
+        }
+      }
     } catch (err) {
-      handleError(err, base, text)
+      // 流都没建立起来：撤回乐观插入的两条消息，并把文字还给输入框
+      setMessages(base)
+      saveHistory(activeThreadId, base)
+      setDraft(text)
+      const message = handleApiError(err)
+      if (message !== '') {
+        setError(message)
+        // 409 带待确认语义时，卡片才是用户真正需要的那个东西
+        if (err instanceof ApiError && err.kind === 'pending_confirmation') {
+          try {
+            const reply = await fetchMessages(token, activeThreadId)
+            setPending(reply.needs_confirmation ? reply.confirmation : null)
+          } catch {
+            /* 忽略 */
+          }
+        }
+      }
     } finally {
       typer.dispose()
       typewriterRef.current = null
       setStreamingId(null)
       setBusy(false)
     }
-  }, [
-    busy,
-    draft,
-    handleError,
-    locked,
-    messages,
-    persistSession,
-    session.sessionId,
-    session.traceCursor,
-  ])
+  }, [busy, draft, ensureThread, handleApiError, locked, messages, token])
 
   const decide = useCallback(
     async (approved: boolean) => {
       // 硬要求：in-flight 期间按钮必须禁用（ConfirmationCard 收 `busy` 后自己会 disable），
       // 否则双击会发出两次 resume —— 对一个会写盘的动作是真实的数据风险。
-      if (busy || !locked) return
+      if (busy || !locked || threadId === null) return
 
       setBusy(true)
       setError(null)
       try {
-        commit(await confirm(session.sessionId, approved), messages)
+        commit(await confirm(token, threadId, approved), messages, threadId)
       } catch (err) {
-        handleError(err, messages)
+        const message = handleApiError(err)
+        if (message !== '') setError(message)
+        // 卡片和服务端已经不一致（多半是别处处理过 / 上一条还在跑）：以服务端为准
+        if (err instanceof ApiError && (err.kind === 'no_pending' || err.kind === 'busy')) {
+          try {
+            const reply = await fetchMessages(token, threadId)
+            setPending(reply.needs_confirmation ? reply.confirmation : null)
+          } catch {
+            /* 忽略 */
+          }
+        }
       } finally {
         setBusy(false)
       }
     },
-    [busy, commit, handleError, locked, messages, session.sessionId],
+    [busy, commit, handleApiError, locked, messages, threadId, token],
   )
 
   function handleSubmit(event: FormEvent) {
@@ -306,7 +502,7 @@ export default function ChatView({
   }
 
   function handleSignOut() {
-    clearHistory(session.sessionId)
+    if (threadId !== null) clearHistory(threadId)
     onSignOut()
   }
 
@@ -315,18 +511,11 @@ export default function ChatView({
   return (
     <div className="flex h-screen flex-col bg-surface-0">
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-hairline bg-surface-1 px-4 py-2.5">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-sm font-medium text-ink-0">{session.displayName}</span>
-          <span className="font-mono text-xs text-ink-3">{session.sessionId.slice(0, 8)}</span>
-          <span
-            className={cn(
-              'shrink-0 rounded-full border px-2 py-0.5 text-[11px]',
-              session.role === 'hr'
-                ? 'border-accent/40 bg-accent-soft text-accent-text'
-                : 'border-hairline-strong text-ink-2',
-            )}
-          >
-            {ROLE_LABEL[session.role] ?? session.role}
+        <div className="flex min-w-0 items-center gap-3">
+          {/* 身份信息收进悬停卡片：顶栏只留一个芯片，侧栏腾给会话 */}
+          <IdentityCard session={session} threadCount={threads.length} />
+          <span className="truncate font-mono text-[11px] text-ink-3">
+            {threadId === null ? '未选择会话' : `会话 ${threadId.slice(0, 8)}`}
           </span>
         </div>
 
@@ -355,21 +544,29 @@ export default function ChatView({
       */}
       <div className="relative flex min-h-0 flex-1">
         <aside
-          aria-label="身份与能力"
+          aria-label="会话"
           inert={leftHidden}
           className={cn(
             'shrink-0 overflow-hidden transition-[width] duration-300 ease-out motion-reduce:transition-none',
-            leftHidden ? 'w-0' : 'w-64',
+            leftHidden ? 'w-0' : 'w-60',
           )}
         >
           <div
             className={cn(
-              'relative h-full w-64 transition-opacity duration-200 motion-reduce:transition-none',
+              'relative h-full w-60 transition-opacity duration-200 motion-reduce:transition-none',
               leftHidden ? 'opacity-0' : 'opacity-100',
             )}
           >
-            <div className="scroll-slim h-full w-64 overflow-y-auto border-r border-hairline bg-surface-1">
-              <SessionPanel session={session} onPickExample={handlePickExample} />
+            <div className="scroll-slim h-full w-60 overflow-y-auto border-r border-hairline bg-surface-1">
+              <SessionPanel
+                threads={threads}
+                loading={threadsLoading}
+                activeThreadId={threadId}
+                role={user.role}
+                onSelectThread={handleSelectThread}
+                onCreateThread={() => void handleCreateThread()}
+                onPickExample={handlePickExample}
+              />
             </div>
           </div>
         </aside>
@@ -383,6 +580,8 @@ export default function ChatView({
                   左边的示例点一下就能填进输入框；
                   <br className="hidden sm:block" />
                   回答下方可以展开看 Supervisor 把任务派给了谁。
+                  <br className="hidden sm:block" />
+                  会话会存进数据库，刷新或换设备都能接着聊。
                 </p>
               </div>
             )}

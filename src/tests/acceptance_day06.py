@@ -2,9 +2,9 @@
 
 用法（在仓库根运行）：
 
-    uv run python src/test/acceptance_day06.py              # 全部 20 条
-    uv run python src/test/acceptance_day06.py --only 3,4,12  # 只跑指定场景
-    uv run python src/test/acceptance_day06.py --list        # 只列出场景
+    uv run python src/tests/acceptance_day06.py              # 全部 20 条
+    uv run python src/tests/acceptance_day06.py --only 3,4,12  # 只跑指定场景
+    uv run python src/tests/acceptance_day06.py --list        # 只列出场景
 
 退出码：全部 PASS 为 0，否则 1。
 
@@ -55,7 +55,7 @@ except Exception:  # noqa: BLE001 —— stdout 不是 TextIOWrapper 时忽略
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "src"))
-# `db_state.py` / `sync_app.py` 与本文件同目录，且 `src/test/` 不是包：
+# `db_state.py` / `sync_app.py` 与本文件同目录，且 `src/tests/` 不是包：
 # 照 `acceptance_persistence.py` 的写法把该目录也放进 sys.path 后裸导入。
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))

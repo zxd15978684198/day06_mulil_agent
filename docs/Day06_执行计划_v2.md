@@ -725,7 +725,7 @@ data/*.json ──►┌┴─────────────────�
       * **V6** §8 第 9 条补了**反方向**断言 —— 原来只验「employee 调 hr 专属工具」，现在同时验「hr 调 `create_device_request`」也返回 `permission_denied`；边界是"按角色授权"，应双向都验；
       * **H1** `build_vector_store()` 增加 `_warn_embedding_model_changed()`：换了 `EMBEDDING_MODEL` 却忘记重建时**显式告警**（查询向量与库内向量不同源会让相似度彻底失去意义，而系统原本不报任何错）；
       * **R2** `handle_interrupts()` 在 `len(interrupts) > 1` 时**打印显式告警**（行为仍与课件一致：只确认第一个），避免将来"以为都处理了"；
-      * **E11** 仓库根 `verify_p5.py` 移入 `src/test/verify_phase4_repro.py`，并把路径改成由 `__file__` 推导（实测从 `C:\` 也能跑通）。
+      * **E11** 仓库根 `verify_p5.py` 移入 `../src/tests`，并把路径改成由 `__file__` 推导（实测从 `C:\` 也能跑通）。
     * **登记未修（均不阻断交付）**：
       * **R7** `create_device_request` 的 `reason` 是用户输入，落盘后又被 HR Agent 读进上下文，构成**间接注入通道**（有人工确认兜底，未验证可利用性）；
       * **R9**「`allow_<role>` 缺键即被排除」这条 fail-closed 性质在当前数据上**不可证**（36 个 chunk 两个键都齐全）；

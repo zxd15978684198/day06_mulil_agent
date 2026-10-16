@@ -1,0 +1,19 @@
+-- V001 · users 表增加 password_hash 列
+-- ============================================================================
+-- 这是 day06_mysql_setup.sql 相对 day05_mysql_setup.sql 的**唯一 DDL 增量**。
+--
+-- 原脚本用「查 information_schema → PREPARE 拼字符串 → EXECUTE」来实现
+-- "缺了才加"（day06_mysql_setup.sql:52-67）。在 alembic 方案里这段是多余的：
+-- 版本账本（alembic_version 表）已经保证这一版只跑一次，
+-- 所以这里直接写裸 ALTER，语义更清楚、也能被 --sql 离线预览。
+--
+-- 与 ORM 对齐：src/personal_assistant/models.py:80
+--     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+-- VARCHAR(255) / NULL / AFTER username —— 三处必须与模型和 day06 脚本一致。
+--
+-- 为什么 NULL（而不是 NOT NULL）：库里 users 已有 27 行数据，
+-- 加 NOT NULL 列必须有 server_default；而这一列的默认值如果是空串或占位串，
+-- 会变成"空密码可登录"的隐患。所以先落可空列，再由 V002 只给需要登录的
+-- 10 个教学账号写入摘要。
+-- ============================================================================
+ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL AFTER username;

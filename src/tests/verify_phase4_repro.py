@@ -1,12 +1,12 @@
 r"""P5 通过信号复现脚本（阶段 4 验收用）。
 
 用法（在仓库根运行，或任意目录 —— 路径由脚本自身推导）：
-    uv run python src/test/verify_phase4_repro.py
+    uv run python src/tests/verify_phase4_repro.py
 
 只读检查，不修改任何业务数据（会比对 `device_requests` 表的行摘要 —— 内容长度 +
 sha256 + 行数 —— 来证明这一点）。
 
-> 2026-10-08 从仓库根移入 `src/test/`（技术方案评审 E11）：它原本散在根目录，与本目录下
+> 2026-10-08 从仓库根移入 `src/tests/`（技术方案评审 E11）：它原本散在根目录，与本目录下
 > 的脚本重复、容易被误认为主入口。功能与阶段 4 验收口径一致，覆盖范围已被
 > `acceptance_day06.py` 的场景 9（employee 调审批 → permission_denied）、
 > 场景 13（张伟恰好 3 条）、场景 19（非公开员工不可见）涵盖，此处保留为**最小复现件**。

@@ -4,22 +4,30 @@ import os
 import threading
 from collections.abc import AsyncGenerator, AsyncIterable
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any
+from typing import Any, Annotated
+from uuid import uuid4
+
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from personal_assistant.auth import authenticate_user, create_access_token
+from personal_assistant.dependencies import CurrentUser, get_current_user, get_owned_runtime_session
 from personal_assistant.knowledge_base import (
     INDEX_MANIFEST_PATH,
     ensure_writable_tempdir,
     warm_up_vector_store,
 )
+from personal_assistant.models import  AgentThread
 
 from personal_assistant.multi_agent import (
     MultiAgentApplication,
@@ -27,20 +35,23 @@ from personal_assistant.multi_agent import (
     message_text,
     outer_trace
 )
-from personal_assistant.database import engine
+from personal_assistant.database import engine, SessionLocal
 from personal_assistant.paths import STATIC_DIR, checkpoint_path
 
 from personal_assistant.schemas import (
-    LoginResponse,
-    LoginRequest,
+    TokenResponse,
     AgentReply,
     ChatRequest,
-    ConfirmRequest
+    ConfirmRequest, CurrentUserResponse, ThreadResponse, ThreadHistoryResponse, HistoryMessage
 )
 
 load_dotenv()
 STREAM_TIMEOUT_SECONDS = int(os.getenv("STREAM_TIMEOUT_SECONDS", 90))
 
+# 注意这里必须是赋值（`=`）而不是裸注解：`X: T` 只往 __annotations__ 里记一条，
+# 不会绑定名字，运行时用它会 NameError。类型也不是 SQLAlchemy 的 Session ——
+# get_owned_runtime_session 返回的是 multi_agent.UserSession。
+RuntimeSessionDep = Annotated[UserSession, Depends(get_owned_runtime_session)]
 
 def _warm_up_vector_store_in_background() -> None:
     """预热知识库索引并把结果打进启动日志。
@@ -60,15 +71,19 @@ def get_session_or_404(request: Request,session_id) -> UserSession:
     重建失败（没有这条线程登记、或账号已停用）才回 404，让前端重新登录。
     """
     session = request.app.state.sessions.get(session_id)
-    if session:
-        return session
-
-    restored = request.app.state.agent.restore_session(session_id)
-    if restored is None:
+    # if session:
+    #     return session
+    #
+    # restored = request.app.state.agent.restore_session(session_id)
+    # if restored is None:
+    #     raise HTTPException(status_code=404,
+    #                         detail="会话不存在请重新登录")
+    # request.app.state.sessions[session_id] = restored
+    # return restored
+    if session is None:
         raise HTTPException(status_code=404,
                             detail="会话不存在请重新登录")
-    request.app.state.sessions[session_id] = restored
-    return restored
+    return session
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -147,22 +162,122 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 # 登录接口
-@app.post("/api/sessions",response_model=LoginResponse,tags=["登录"])
-def create_session(payload: LoginRequest,request: Request) -> LoginResponse:
-    print("登录接口",payload.username)
-    try:
-        # restore=True：同一账号重进时复用上次的 thread_id（课件 §8.2）
-        user = request.app.state.agent.start_session(payload.username, restore=True)
-        # 把用户保存到sessions里面，用来后续对话中查找
-        request.app.state.sessions[user.thread_id] = user
-        return LoginResponse(
-            session_id=user.thread_id,
-            display_name=user.context.display_name,
-            role=user.context.role,
+# @app.post("/api/sessions",response_model=LoginResponse,tags=["登录"])
+# def create_session(payload: LoginRequest,request: Request) -> LoginResponse:
+#     print("登录接口",payload.username)
+#     try:
+#         # restore=True：同一账号重进时复用上次的 thread_id（课件 §8.2）
+#         user = request.app.state.agent.start_session(payload.username, restore=True)
+#         # 把用户保存到sessions里面，用来后续对话中查找
+#         request.app.state.sessions[user.thread_id] = user
+#         return LoginResponse(
+#             session_id=user.thread_id,
+#             display_name=user.context.display_name,
+#             role=user.context.role,
+#         )
+#     except Exception as e:
+#         raise HTTPException(status_code=401,
+#                             detail="此用户不存在")
+
+
+@app.post("/api/sessions",response_model=TokenResponse,tags=["Authentication"])
+def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,Depends()]
+) -> TokenResponse:
+    """验证用户名和密码，只签发Token吗，不创建Thread"""
+
+    with SessionLocal() as db:
+        user = authenticate_user(db, form_data.username, form_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户名或密码错误",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        # session关闭前取出主键，Token 只保存整个稳定的用户编号
+        user_id = user.user_id
+    return TokenResponse(access_token=create_access_token(user_id),token_type="bearer")
+
+CurrentUserDep = Annotated[CurrentUser,Depends(get_current_user),]
+
+@app.get(
+    "/api/auth/me",
+    response_model=CurrentUserResponse,
+    tags=["Authentication"],
+)
+def read_current_user(current_user: CurrentUserDep) -> CurrentUserResponse:
+    """返回数据库最新且允许展示的用户信息"""
+    return CurrentUserResponse(
+        user_id=current_user.user_id,
+        username=current_user.username,
+        display_name=current_user.display_name,
+        role=current_user.role,
+        department_id=current_user.department_id,
+    )
+
+# 查询当前用户的会话列表
+@app.get(
+    "/api/threads",
+    response_model=list[ThreadResponse],
+    tags=["Threads"]
+)
+def list_sessions(current_user: CurrentUserDep) -> list[ThreadResponse]:
+    # user_id只能来自已经验证的 CurrentUser，不能由浏览器进行提交
+    statement = (select(AgentThread).
+                 where(AgentThread.user_id == current_user.user_id)
+                 .order_by(AgentThread.created_at.desc())
+                 )
+    with SessionLocal() as db:
+            threads = db.scalars(statement).all()
+            return [ThreadResponse(thread_id=thread.thread_id,created_at=thread.created_at) for thread in threads]
+
+# 创建当前用户的新会话
+@app.post("/api/threads",
+          response_model=ThreadResponse,
+          status_code=status.HTTP_201_CREATED,
+          tags=["Threads"]
+)
+def create_thread(current_user: CurrentUserDep) -> ThreadResponse:
+    # begin()正常结束时会自动提交，出现异常时自动回滚
+    with SessionLocal.begin() as db:
+        record = AgentThread(
+            thread_id=str(uuid4()),
+            user_id=current_user.user_id
         )
-    except Exception as e:
-        raise HTTPException(status_code=401,
-                            detail="此用户不存在")
+        db.add(record)
+        db.flush() # 执行INSERT ，但不会自动提交，需要手动调用commit()
+        response = ThreadResponse(thread_id=record.thread_id,
+                                  created_at=record.created_at
+                                  )
+    return response
+
+"""
+db.add(record)
+    ↓ 放入待写入状态
+db.flush()
+    ↓ 执行 INSERT，事务尚未提交，可以读取 created_at
+正常离开 SessionLocal.begin()
+    ↓ 自动 commit
+出现异常
+    ↓ 自动 rollback
+"""
+
+@app.get(
+    "/api/threads/{thread_id}/messages",
+    response_model=ThreadHistoryResponse,
+    tags=["Threads"]
+)
+async def list_thread_messages(
+        request: Request,
+        session: RuntimeSessionDep,
+) -> ThreadHistoryResponse:
+    """RuntimeSessionDep 已经完成 JWT 验证和 Thread 归属校验"""
+    messages,confirmation = await request.app.state.agent.get_thread_history(session)
+    return ThreadHistoryResponse(
+        messages=[HistoryMessage(**message) for message in messages],
+        needs_confirmation= confirmation is not None,
+        confirmation=confirmation
+    )
+
 
 
 def format_agent_result(
@@ -296,9 +411,13 @@ async def stream_agent_events(
         yield sse_event("done",{"status":status_value})
 
     except TimeoutError:
-        # 响应头已经发送，此时通过SSE error报告超时
+        # 响应头已经发送，此时通过SSE error报告超时。
+        # 超时是把这一轮的协程取消掉：检查点里可能留下 `next`（未执行完的节点），
+        # 但**不会**留下 interrupt 记录 —— 于是 `pending_confirmation_of()` 判定
+        # 「没有待确认」，`GET /messages` 与这里口径一致，客户端可以直接重试；
+        # 重试会从检查点接着跑，需要人工确认时再正常抛出 confirmation 事件。
         yield sse_event("error",
-                        {"message":"agent 处理超时，请稍后重试"},
+                        {"message":"本轮处理超时已被中断，会话状态已保留，请直接重试"},
                         )
     except asyncio.CancelledError:
         # CancelledError 表示协程被取消；继续抛出，让ASGI SERVER完成清理
@@ -310,33 +429,43 @@ async def stream_agent_events(
         raise
     finally:
         # 每轮结束清空活跃集合当中的session_id,discard() 在元素不存在时也不会报错，适合在 finally 中安全清理。
-        request.app.state.active_streams.discard(payload.session_id)
+        request.app.state.active_streams.discard(session.thread_id)
 
 
-@app.post("/api/chat/stream")
+@app.post(
+    "/api/threads/{thread_id}/chat/stream",
+    response_class=StreamingResponse,
+    tags=["对话"],
+)
 async def stream_chat(
-        payload: ChatRequest,
+        payload: ChatRequest,    # payload 是FastApi已校验的请求体，包含session_id和message
         request: Request,
+        session: RuntimeSessionDep,
 ) -> StreamingResponse:
-    """校验请求后建立SSE响应，持续发送agent事件"""
-    session = get_session_or_404(request,payload.session_id)
+    """只在已认证用户拥有的Thread中云殉国Agent"""
+    active_streams: set[str] = request.app.state.active_streams
 
-    # 同一会话等待确认时，不能继续提交新的聊天任务（判断来自检查点，不是内存集合）
-    if await request.app.state.agent.has_pending_confirmation(session):
-        raise HTTPException(
-            status_code=409,
-            detail="请先处理当前待确认操作"
-        )
-
-    # active_streams中存在编号时，说明上一条SSE请求还在运行
-    if payload.session_id in request.app.state.active_streams:
+    # 进程中避免同一个Thread同时执行两次，造成状态写入竞争
+    if session.thread_id in active_streams:
         raise HTTPException(
             status_code=409,
             detail="当前会话正在处理上一条消息"
         )
+    active_streams.add(session.thread_id)
+    try:
+        # 同一会话等待确认时，不能继续提交新的聊天任务（判断来自检查点，不是内存集合）
+        if await request.app.state.agent.has_pending_confirmation(session):
+            raise HTTPException(
+                status_code=409,
+                detail="请先处理当前待确认操作"
+            )
+    except BaseException:
+        # 必须捕获 BaseException：asyncio.CancelledError 继承它而非 Exception，
+        # 客户端在 has_pending_confirmation 等待期间断开时也要归还名额，
+        # 否则该 thread_id 会永久滞留在 active_streams，之后每次请求都被 409 挡掉。
+        active_streams.discard(session.thread_id)
+        raise
 
-    # 在返回StreamingResponse前先占用运行标记，防止并发请求同时进入
-    request.app.state.active_streams.add(payload.session_id)
 
     return StreamingResponse(
         stream_agent_events(request,session,payload),
@@ -347,21 +476,38 @@ async def stream_chat(
     )
 
 # 用户确认接口
-@app.post("/api/confirmation",response_model=AgentReply,tags=["对话"])
-async def confirmation_action(payload: ConfirmRequest,request: Request) -> AgentReply:
-    session = get_session_or_404(request,payload.session_id)
+@app.post("/api/threads/{thread_id}/confirmation",
+          response_model=AgentReply,
+          tags=["对话"])
+async def confirmation_action(payload: ConfirmRequest,
+                              request: Request,
+                              session: RuntimeSessionDep
+) -> AgentReply:
+    # 检查会话是否在活跃集合中，防止同一Thread同时执行两次
+    active_streams: set[str] = request.app.state.active_streams
 
-    if not await request.app.state.agent.has_pending_confirmation(session):
-        raise HTTPException(status_code=409,detail="当前会话没有待确认的操作")
+    if session.thread_id in active_streams:
+        raise HTTPException(
+            status_code=409,
+            detail="当前会话正在处理上一条消息"
+        )
 
+    active_streams.add(session.thread_id)
     try:
+        if not await request.app.state.agent.has_pending_confirmation(session):
+            raise HTTPException(status_code=409,detail="当前会话没有待确认的操作")
         result = await request.app.state.agent.resume(
             session,
             approved = payload.approved,
         )
-        return format_agent_result(request,payload.session_id,result)
+        return format_agent_result(request,session.thread_id,result)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=503,
             detail="agent 调用失败，请稍后重试"
         ) from e
+    finally:
+        active_streams.discard(session.thread_id)
+

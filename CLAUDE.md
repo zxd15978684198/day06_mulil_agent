@@ -74,7 +74,7 @@ The Supervisor must **rewrite** the task before delegating — resolve pronouns 
 - **Filter knowledge at retrieval time**, not after. Once unauthorized text reaches the model context, the boundary is already crossed. Use `allowed_roles` — `access_scope` is display-only, and directory names carry no authority.
 - **Never wrap an Agent Tool in a broad `try/except`.** Inner write tools suspend with LangGraph `interrupt()`; catching that signal breaks human confirmation and resumption. `Command(resume={"approved": ...})` must reuse the original `thread_id` and context.
 - **`chat()` submits only the new turn.** The checkpointer replays history from `thread_id`; re-sending prior messages duplicates the conversation.
-- **Only the `device_requests` table is mutated.** Everything under `knowledge/` and the other JSON baselines are read-only. Test suites back up and restore that table automatically via `src/test/db_state.py`.
+- **Only the `device_requests` table is mutated.** Everything under `knowledge/` and the other JSON baselines are read-only. Test suites back up and restore that table automatically via `src/tests`.
 - **Keep the `day05_` filename prefixes.** They look stale but are intentional — the course reuses Week14/Day05 artifacts verbatim.
 
 ## Data and knowledge contracts

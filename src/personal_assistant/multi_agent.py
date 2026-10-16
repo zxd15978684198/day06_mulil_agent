@@ -30,7 +30,7 @@ from uuid import uuid4
 
 from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage, HumanMessage
 from langgraph.config import get_stream_writer
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Command, interrupt
@@ -138,6 +138,25 @@ def outer_trace(result: dict[str, Any]) -> list[dict[str, Any]]:
     return trace
 
 
+def pending_confirmation_of(snapshot: Any) -> dict[str, Any] | None:
+    """从状态快照里取出「待人工确认」的负载；没有待确认时返回 None。
+
+    全项目**只有这一个判据**：`StateSnapshot.interrupts`。它只在图真的停在
+    `interrupt()` 上时才有值。
+    不能用 `snapshot.next` 代替：流被 `asyncio.timeout` 取消时，`next` 同样会
+    留下尚未执行的节点，但并没有 interrupt 记录。用 `next` 会把「上一轮失败」
+    误判成「等人工确认」—— 前端因此拿不到确认卡片、却又不让发新消息，会话被
+    卡死（2026-10-16 实测复现）。`has_pending_confirmation` 与
+    `get_thread_history` 必须共用本函数，否则两份判断会再次漂移。
+    """
+
+    interrupts = getattr(snapshot, "interrupts", ()) or ()
+    if not interrupts:
+        return None
+    value = interrupts[0].value
+    return value if isinstance(value, dict) else {"message": str(value)}
+
+
 @dataclass
 class UserSession:
     context: RunContext
@@ -156,6 +175,10 @@ class MultiAgentApplication:
         # 必须先创建专业 Agent，再把它们包装成 Agent Tool。
         self._build_specialists()
         self._build_agent_tools()
+        self.supervisors = {
+            "employee": self._build_supervisor("employee"),
+            "hr": self._build_supervisor("hr"),
+        }
 
     # ------------------------------------------------------------------
     # 专业 Agent（课件 §7.5）：只挂本职业务 Tool
@@ -461,59 +484,59 @@ class MultiAgentApplication:
             supervisor=self._build_supervisor(context.role),
         )
 
-    def restore_session(self, thread_id: str) -> UserSession | None:
-        """按 `thread_id` 重建会话（进程重启后的恢复入口，课件 §8.3）。
-
-        内存里的 `app.state.sessions` 是**缓存**、不是真源：真源是 `agent_threads`
-        （`thread_id → user_id`）加 `users`（身份）。缓存丢失时用它把可信身份重新
-        拼出来，同一个 `thread_id` 继续读写同一份检查点，因此历史与未决确认都还在。
-        账号被停用、角色不合法或记录已删除时返回 `None`（`U6`：不允许越权恢复）。
-        """
-
-        with SessionLocal() as db:
-            row = db.scalar(
-                select(AgentThread).where(AgentThread.thread_id == thread_id)
-            )
-            if row is None:
-                return None
-            user = db.scalar(select(User).where(User.user_id == row.user_id))
-            if (
-                user is None
-                or not user.login_enabled
-                or user.account_status != "active"
-                or user.role not in {"employee", "hr"}
-            ):
-                return None
-            context = RunContext(
-                user_id=user.user_id,
-                username=str(user.username or ""),
-                display_name=user.display_name,
-                role=str(user.role or ""),
-                department_id=user.department_id,
-            )
-
-        # 与 start_session 一致地重建模型与工具链：网关按会话做路由与缓存，
-        # `session_id` 必须是新的（课件 §7.6）。身份与 thread_id 则保持原样。
-        self.model = build_model(session_id=new_session_id())
-        self._build_specialists()
-        self._build_agent_tools()
-
-        return UserSession(
-            context=context,
-            thread_id=thread_id,
-            supervisor=self._build_supervisor(context.role),
-        )
+    # def restore_session(self, thread_id: str) -> UserSession | None:
+    #     """按 `thread_id` 重建会话（进程重启后的恢复入口，课件 §8.3）。
+    #
+    #     内存里的 `app.state.sessions` 是**缓存**、不是真源：真源是 `agent_threads`
+    #     （`thread_id → user_id`）加 `users`（身份）。缓存丢失时用它把可信身份重新
+    #     拼出来，同一个 `thread_id` 继续读写同一份检查点，因此历史与未决确认都还在。
+    #     账号被停用、角色不合法或记录已删除时返回 `None`（`U6`：不允许越权恢复）。
+    #     """
+    #
+    #     with SessionLocal() as db:
+    #         row = db.scalar(
+    #             select(AgentThread).where(AgentThread.thread_id == thread_id)
+    #         )
+    #         if row is None:
+    #             return None
+    #         user = db.scalar(select(User).where(User.user_id == row.user_id))
+    #         if (
+    #             user is None
+    #             or not user.login_enabled
+    #             or user.account_status != "active"
+    #             or user.role not in {"employee", "hr"}
+    #         ):
+    #             return None
+    #         context = RunContext(
+    #             user_id=user.user_id,
+    #             username=str(user.username or ""),
+    #             display_name=user.display_name,
+    #             role=str(user.role or ""),
+    #             department_id=user.department_id,
+    #         )
+    #
+    #     # 与 start_session 一致地重建模型与工具链：网关按会话做路由与缓存，
+    #     # `session_id` 必须是新的（课件 §7.6）。身份与 thread_id 则保持原样。
+    #     self.model = build_model(session_id=new_session_id())
+    #     self._build_specialists()
+    #     self._build_agent_tools()
+    #
+    #     return UserSession(
+    #         context=context,
+    #         thread_id=thread_id,
+    #         supervisor=self._build_supervisor(context.role),
+    #     )
 
     async def has_pending_confirmation(self, session: UserSession) -> bool:
         """本轮是否停在人工确认上 —— 读**检查点**，不读进程内集合（计划 §7 `R4`）。
 
         进程重启后内存集合必然为空、而检查点里的 interrupt 还在；"待确认"存成两份
-        正是状态漂移的根因，所以这里只认检查点：`StateSnapshot.next` 非空即表示
-        图停在某个节点前（人工确认）。
+        正是状态漂移的根因，所以这里只认检查点，并且与 `get_thread_history` 共用
+        `pending_confirmation_of()` 这一个判据。
         """
 
         snapshot = await session.supervisor.aget_state(self._config(session))
-        return bool(getattr(snapshot, "next", ()))
+        return pending_confirmation_of(snapshot) is not None
 
     # ------------------------------------------------------------------
     # 多轮对话与人工确认恢复（课件 §10.1、§10.2）
@@ -524,18 +547,48 @@ class MultiAgentApplication:
 
         return {"configurable": {"thread_id": session.thread_id}}
 
-    async def chat(self, session: UserSession, user_text: str) -> dict[str, Any]:
-        """在同一 Thread 中只提交本轮新增消息。
+    async def get_thread_history(
+            self,
+            session: UserSession
+    ) -> tuple[
+            list[dict[str, Any]],
+            dict[str, Any]]:
+        """_config(session) 使用当前 session.thread_id 定位最新状态快照"""
+        snapshot = await session.supervisor.aget_state(self._config(session))
 
-        改 async：持久化 Checkpointer 用的是 `AsyncSqliteSaver`，它**只有异步接口**
-        （课件 Day05 §7.2），同步 `invoke` 会直接报错。
-        """
+        display_messages: list[dict[str, str]] = []
 
-        return await session.supervisor.ainvoke(
-            {"messages": [{"role": "user", "content": user_text}]},
-            config=self._config(session),
-            context=session.context,
-        )
+        # 空Thread 没有messages，有数据时按照原顺序过滤信息
+        for message in (snapshot.values or {}).get("messages", []):
+            role: str | None = None
+            if isinstance(message, HumanMessage):
+                role = "user"
+            elif (
+                isinstance(message, AIMessage)
+                and not message.tool_calls
+            ):
+                role = "assistant"
+
+            if role is None:
+                continue
+            content = message_text(message).strip()
+            if content:
+                display_messages.append({"role": role, "content": content})
+
+        return display_messages, pending_confirmation_of(snapshot)
+
+    # async def chat(self, session: UserSession, user_text: str) -> dict[str, Any]:
+    #     """在同一 Thread 中只提交本轮新增消息。
+    #
+    #     改 async：持久化 Checkpointer 用的是 `AsyncSqliteSaver`，它**只有异步接口**
+    #     （课件 Day05 §7.2），同步 `invoke` 会直接报错。
+    #     """
+    #
+    #     return await session.supervisor.ainvoke(
+    #         {"messages": [{"role": "user", "content": user_text}]},
+    #         config=self._config(session),
+    #         context=session.context,
+    #     )
 
     async def resume(self, session: UserSession, approved: bool) -> dict[str, Any]:
         """使用同一 Thread 和 Context 恢复最近一次人工确认（同 chat 走异步接口）。"""

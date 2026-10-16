@@ -1,0 +1,11 @@
+-- V001 回滚 · 删掉 users.password_hash
+-- ============================================================================
+-- ⚠️ MySQL 8.0 **没有** `DROP COLUMN IF EXISTS`，所以这一条不是幂等的：
+--    列已经不存在时执行会报 (1091, "Can't DROP 'password_hash'; check that
+--    column/key exists")。幂等性由旁边的版本账本负责，不靠 SQL 自己。
+--
+-- ⚠️ 这条会**连带删掉所有已写入的密码摘要**（列没了，哈希自然没了）。
+--    在有真实账号的库上执行前先备份：
+--        mysqldump agent_service users > users_before_downgrade.sql
+-- ============================================================================
+ALTER TABLE users DROP COLUMN password_hash;

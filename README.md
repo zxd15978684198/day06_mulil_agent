@@ -42,8 +42,8 @@
 | 项 | 状态 |
 | --- | --- |
 | 后端 6 个施工阶段（P0–P9） | 全部执行完毕 |
-| 阶段通过信号 `src/test/verify_phase5.py` | **12/12 PASS**（A1–A7 确定性 + B1–B5 真实模型）——项目记录 |
-| §8 端到端验收 `src/test/acceptance_day06.py` | **20/20 PASS**——项目记录，⚠️ **见下方数据基线警告，现已失效** |
+| 阶段通过信号 `src/tests` | **12/12 PASS**（A1–A7 确定性 + B1–B5 真实模型）——项目记录 |
+| §8 端到端验收 `src/tests` | **20/20 PASS**——项目记录，⚠️ **见下方数据基线警告，现已失效** |
 | 前端 `P0`–`P11`（含三档追加需求） | 全部执行完毕，阶段证据见 [`frontend/test/`](frontend/test/README.md) |
 | 索引 | 10 份资料 / 36 chunk / 解析失败 0 |
 | 业务数据 | 设备申请（真源 = MySQL `agent_service.device_requests` 表；条数随验收/网页测试漂移，**以库中实际为准**） |
@@ -192,7 +192,7 @@ mutil_agent/
     └── test/                     ← 三个测试脚本 + README（不参与打包）
 ```
 
-> ⚠️ `src/test/` 会遮蔽标准库的 `test` 包（`src` 在 `sys.path` 上）。对本项目无影响，
+> ⚠️ `src/tests` 会遮蔽标准库的 `test` 包（`src` 在 `sys.path` 上）。对本项目无影响，
 > 但如果日后要 `import test.*`，需把目录改名（惯例 `tests/`）。
 
 ---
@@ -408,19 +408,19 @@ FastAPI 自带 `/docs`（Swagger UI），三条业务路由都能直接调；`/`
 
 退出码 **0 = 全通过**。
 
-### 9.1 后端两个脚本（`src/test/`）
+### 9.1 后端两个脚本（`src/tests`）
 
 ```bash
 # 阶段通过信号：12 项（A1–A7 确定性 + B1–B5 需真实模型），约 1 分钟
-uv run python -u src/test/verify_phase5.py
+uv run python -u src/tests/verify_phase5.py
 
 # §8 端到端验收：20 条场景，约 3–5 分钟
-uv run python -u src/test/acceptance_day06.py
-uv run python -u src/test/acceptance_day06.py --only 6,9,12,13,14,15,19,20   # 只跑确定性场景
-uv run python -u src/test/acceptance_day06.py --list                        # 列场景清单
+uv run python -u src/tests/acceptance_day06.py
+uv run python -u src/tests/acceptance_day06.py --only 6,9,12,13,14,15,19,20   # 只跑确定性场景
+uv run python -u src/tests/acceptance_day06.py --list                        # 列场景清单
 
 # 第四阶段最小复现（只读，秒级）
-uv run python -u src/test/verify_phase4_repro.py
+uv run python -u src/tests/verify_phase4_repro.py
 ```
 
 * 逐条要求**四者相互印证**：Agent Tool 调用 / 业务 Tool 调用 / 最终回答 / **数据文件实际状态**；
@@ -432,7 +432,7 @@ uv run python -u src/test/verify_phase4_repro.py
 ### 9.2 前端两个自检（`frontend/`）
 
 ```bash
-cd frontend && node test/logic-check.ts     # P2+P3+P4 逻辑层，记录为 36 passed / 0 failed
+cd frontend && node tests/logic-check.ts     # P2+P3+P4 逻辑层，记录为 36 passed / 0 failed
 
 # P11 打字机 + SSE 帧解析（17 条，不依赖后端）
 npx tsc src/lib/typewriter.ts src/lib/sse.ts --outDir ..\.tmp\twbuild --module commonjs \
@@ -618,7 +618,7 @@ uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; 
 | --- | --- |
 | [`docs/CLI_用户操作流程.md`](docs/CLI_用户操作流程.md) | **CLI 用户视角**：五分钟上手、登录账号、能问什么（按身份）、写操作确认、切账号退出、常见问题、一分钟自检 |
 | [`docs/CLI_使用与实现流程.md`](docs/CLI_使用与实现流程.md) | **CLI 技术视角**：一次 `你：` 输入在代码里走过的**完整调用链（带行号）**、中断与恢复、路由证据来源、关键设计点与常见告警解释 |
-| [`src/test/README.md`](src/test/README.md) | 三个测试脚本的运行方式、执行顺序理由、数据安全、判定口径注意点（含五处弱断言的修法） |
+| [`src/tests`](src/tests/README.md) | 三个测试脚本的运行方式、执行顺序理由、数据安全、判定口径注意点（含五处弱断言的修法） |
 | [`frontend/test/`](frontend/test/README.md) | 前端各阶段流程文档 + `shots/` 真机截图 |
 
 ### 课件（上游规格）
@@ -638,8 +638,8 @@ uv sync
 uv run python build_index.py
 
 # 后端验收（⚠️ 先处理 §1 的数据基线冲突）
-uv run python -u src/test/verify_phase5.py        # 期望 12/12，exit 0
-uv run python -u src/test/acceptance_day06.py     # 期望 20/20，exit 0
+uv run python -u src/tests/verify_phase5.py        # 期望 12/12，exit 0
+uv run python -u src/tests/acceptance_day06.py     # 期望 20/20，exit 0
 
 # CLI 手测
 uv run python main.py                             # zhang_wei 登录，试一句：

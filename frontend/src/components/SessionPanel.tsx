@@ -1,30 +1,23 @@
-import type { StoredSession } from '../lib/session'
+import type { ThreadInfo } from '../lib/api'
+import { SIDEBAR_SHORTCUT_HINT } from '../lib/layout'
+import { formatAbsolute, formatRelative, parseServerTime } from '../lib/time'
 import { cn } from '../lib/utils'
 import PanelSection from './PanelSection'
 
 /**
- * 左栏：身份与能力。
+ * 左栏：**只放会话**。
  *
- * 这块不只是"填空" —— 它把**三道权限闸门**里最直观的那一道摆到台面上：
- * 同一个问题，换个身份能做的事不一样。演示时不用讲，看一眼侧栏就明白。
+ * 身份与"能做什么"搬去了顶栏的悬停卡片（见 `IdentityCard.tsx`），
+ * 这里因此只剩下一件事：在会话之间切换。
  *
- * 能力清单的事实来源：`CLAUDE.md` 的架构图（Supervisor 只挂 Agent Tools，
- * 专家各持自己的业务 Tool，`ask_hr_agent` 只对 HR 可见）。
+ * **为什么给列表加高度上限**：后端这台教学库里单个账号已经攒了几十条会话，
+ * 列表若跟着容器长到满屏，左栏就变成"会话记录墙"——用户的原话是
+ * "会话记录不要占据整个左侧边栏"。所以列表自己滚动（`LIST_MAX_HEIGHT`），
+ * 卡片高度跟着条数走，少的时候就是一两个条目的高度。
  *
- * 视觉粒度见 `PanelSection` 的注释：**分组有边界，条目靠间距与字重**。
+ * 只列最近 `MAX_VISIBLE` 条：接口还没有分页，全渲染没有意义；
+ * 总数放在标题里，让人知道"还有更多"。
  */
-
-interface Capability {
-  label: string
-  detail: string
-  hrOnly?: boolean
-}
-
-const CAPABILITIES: readonly Capability[] = [
-  { label: '制度问答', detail: '公司介绍、员工手册、各类规章制度与办公指引' },
-  { label: '员工服务', detail: '查部门与公开联系人、查设备目录、提交设备申请、查自己的申请' },
-  { label: 'HR 审批', detail: '审批待处理的设备申请', hrOnly: true },
-] as const
 
 const EXAMPLES: Record<string, readonly string[]> = {
   employee: [
@@ -35,64 +28,128 @@ const EXAMPLES: Record<string, readonly string[]> = {
   hr: ['现在有哪些申请待审批？', '我想申请一台 24 英寸显示器，用于双屏办公'],
 }
 
-const ROLE_LABEL: Record<string, string> = { employee: '员工', hr: 'HR' }
+const MAX_VISIBLE = 12
+
+/** 列表的高度上限：超过就在卡片内部滚动，不再往侧栏里长。 */
+const LIST_MAX_HEIGHT = 'max-h-[min(46vh,20rem)]'
 
 interface SessionPanelProps {
-  session: StoredSession
+  threads: ThreadInfo[]
+  /** 列表还在请求中（首屏） */
+  loading: boolean
+  /** 当前选中的会话；还没建会话时为 null */
+  activeThreadId: string | null
+  /** 决定示例问题用哪一套 */
+  role: string
+  onSelectThread: (threadId: string) => void
+  onCreateThread: () => void
   /** 点示例问题 → 填进输入框（不直接发送，留给用户改） */
   onPickExample: (text: string) => void
 }
 
-export default function SessionPanel({ session, onPickExample }: SessionPanelProps) {
-  const isHr = session.role === 'hr'
-  const examples = EXAMPLES[session.role] ?? EXAMPLES.employee
+export default function SessionPanel({
+  threads,
+  loading,
+  activeThreadId,
+  role,
+  onSelectThread,
+  onCreateThread,
+  onPickExample,
+}: SessionPanelProps) {
+  const examples = EXAMPLES[role] ?? EXAMPLES.employee
+  const visible = threads.slice(0, MAX_VISIBLE)
+  const overflow = threads.length > MAX_VISIBLE
 
   return (
-    <div className="space-y-3 p-3">
-      <PanelSection title="当前身份" hint={ROLE_LABEL[session.role] ?? session.role}>
-        <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control border border-hairline bg-surface-3 text-sm font-semibold text-accent-text"
+    <div className="flex h-full w-full flex-col gap-2.5 p-3">
+      <PanelSection
+        title="会话"
+        hint={loading ? '加载中' : `${threads.length} 个`}
+        action={
+          <button
+            type="button"
+            onClick={onCreateThread}
+            title={`新建会话（${SIDEBAR_SHORTCUT_HINT} 收起左栏）`}
+            className={cn(
+              'flex shrink-0 items-center gap-1 rounded-[6px] border border-hairline-strong px-1.5 py-0.5',
+              'text-[11px] text-ink-1 transition-colors',
+              'hover:border-accent hover:bg-accent-soft hover:text-accent-text',
+              'active:translate-y-px motion-reduce:active:translate-y-0',
+            )}
           >
-            {session.displayName.slice(0, 1)}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-ink-0">{session.displayName}</p>
-            <p className="truncate font-mono text-[11.5px] text-ink-3">
-              {session.sessionId.slice(0, 8)}
-            </p>
-          </div>
-        </div>
-        <p className="mt-2.5 text-[11.5px] leading-relaxed text-ink-3">
-          身份由服务端按账号查表决定，聊天里说什么都改不了它。
-        </p>
-      </PanelSection>
-
-      <PanelSection title="这个身份能做什么">
-        <ul className="space-y-3.5">
-          {CAPABILITIES.map((item) => {
-            const locked = item.hrOnly === true && !isHr
-            return (
-              <li key={item.label}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className={cn('text-[13px]', locked ? 'text-ink-2' : 'text-ink-0')}>
-                    {item.label}
-                  </span>
-                  {locked && (
-                    <span className="shrink-0 rounded-full bg-surface-3 px-1.5 py-0.5 text-[10.5px] text-ink-3">
-                      需 HR
+            <span aria-hidden className="text-[11px] leading-none">
+              ＋
+            </span>
+            新建
+          </button>
+        }
+        bodyClassName={cn('p-1.5', !loading && visible.length > 0 && LIST_MAX_HEIGHT, 'overflow-y-auto scroll-slim')}
+      >
+        {loading ? (
+          <>
+            <ul className="space-y-1.5" aria-hidden>
+              {[0, 1, 2].map((row) => (
+                <li key={row} className="h-10 animate-pulse rounded-control bg-surface-3" />
+              ))}
+            </ul>
+            <span role="status" className="sr-only">
+              正在加载会话列表
+            </span>
+          </>
+        ) : visible.length === 0 ? (
+          <p className="px-1.5 py-3 text-[11.5px] leading-relaxed text-ink-3">
+            还没有会话。
+            <br />
+            发第一条消息时会自动建一个。
+          </p>
+        ) : (
+          <ul className="space-y-0.5">
+            {visible.map((thread) => {
+              const active = thread.thread_id === activeThreadId
+              const parsed = parseServerTime(thread.created_at)
+              return (
+                <li key={thread.thread_id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectThread(thread.thread_id)}
+                    aria-current={active ? 'true' : undefined}
+                    title={`${thread.thread_id}${parsed === null ? '' : ` · ${formatAbsolute(parsed)}`}`}
+                    className={cn(
+                      'relative flex w-full flex-col gap-0.5 rounded-control py-1.5 pl-2.5 pr-2 text-left',
+                      'transition-colors active:translate-y-px motion-reduce:active:translate-y-0',
+                      active
+                        ? 'bg-accent-soft text-accent-text'
+                        : 'text-ink-1 hover:bg-surface-3 hover:text-ink-0',
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'absolute inset-y-1.5 left-0 w-[2px] rounded-full transition-colors',
+                        active ? 'bg-accent' : 'bg-transparent',
+                      )}
+                    />
+                    <span className="truncate text-[12.5px] font-medium">
+                      会话 {thread.thread_id.slice(0, 8)}
                     </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">{item.detail}</p>
-              </li>
-            )
-          })}
-        </ul>
+                    <span className="truncate font-mono text-[10.5px] tabular-nums text-ink-3">
+                      {formatRelative(thread.created_at)}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        {!loading && overflow && (
+          <p className="px-1.5 pb-0.5 pt-1.5 text-[10.5px] text-ink-3">
+            只显示最近 {MAX_VISIBLE} 个（共 {threads.length} 个）
+          </p>
+        )}
       </PanelSection>
 
-      <PanelSection title="试试这样问" hint="点一下填进输入框">
+      <PanelSection title="试试这样问" hint="点一下填进输入框" className="shrink-0">
         <ul className="-mx-1.5 space-y-0.5">
           {examples.map((example) => (
             <li key={example}>
@@ -100,8 +157,8 @@ export default function SessionPanel({ session, onPickExample }: SessionPanelPro
                 type="button"
                 onClick={() => onPickExample(example)}
                 className={cn(
-                  'group flex w-full items-start gap-1.5 rounded-control px-1.5 py-2 text-left',
-                  'text-[12.5px] leading-relaxed text-ink-1 transition-colors',
+                  'group flex w-full items-start gap-1.5 rounded-control px-1.5 py-1.5 text-left',
+                  'text-[12px] leading-relaxed text-ink-1 transition-colors',
                   'hover:bg-surface-3 hover:text-ink-0',
                 )}
               >
@@ -117,6 +174,11 @@ export default function SessionPanel({ session, onPickExample }: SessionPanelPro
           ))}
         </ul>
       </PanelSection>
+
+      {/* 底部提示：撑到底部，也让"会话卡片"和侧栏底部之间留出呼吸空间 */}
+      <p className="mt-auto px-1 text-[10.5px] leading-relaxed text-ink-3">
+        {SIDEBAR_SHORTCUT_HINT} 收起这一栏
+      </p>
     </div>
   )
 }
