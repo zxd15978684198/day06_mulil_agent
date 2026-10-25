@@ -1,20 +1,22 @@
 """创建当前用户的依赖"""
+
 from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import HTTPException, Depends, status, Request
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 
 from personal_assistant.auth import decode_access_token
 from personal_assistant.business_tools import RunContext
 from personal_assistant.database import SessionLocal
-from personal_assistant.models import User, AgentThread
+from personal_assistant.models import AgentThread, User
 from personal_assistant.multi_agent import UserSession
 
 # 这里只负责Authentication从请求头获取Bearer token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/session")
+
 
 @dataclass(frozen=True)
 class CurrentUser:
@@ -29,9 +31,12 @@ class CurrentUser:
 
 def _credentials_exception() -> HTTPException:
     """当token验证失败时抛出的异常"""
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                         detail="无法验证登录凭证",
-                         headers={"WWW-Authenticate": "Bearer"})
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="无法验证登录凭证",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 
 def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> CurrentUser:
     """验证JWT token并从数据库中恢复出当前用户信息"""
@@ -63,6 +68,7 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> CurrentUs
             role=user.role,
             department_id=user.department_id,
         )
+
 
 """
 身份恢复顺序是：
@@ -99,24 +105,29 @@ get_owned_runtime_session()
 # RunContext把可信用户属性传入Supervisor,Tool和Retriver
 # UserSession组合RunContext和thread_id，和对应的supervisor
 
+
 def get_owned_runtime_session(
-        request: Request,
-        thread_id: str,
-        current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    request: Request,
+    thread_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> UserSession:
     """验证Thread归属、并构造请求时的运行会话"""
 
     # 同时匹配thread_id和当前用户的user_id，防止水平越权访问
-    statement = select(AgentThread).where(AgentThread.thread_id == thread_id,
-                                          AgentThread.user_id == current_user.user_id,)
+    statement = select(AgentThread).where(
+        AgentThread.thread_id == thread_id,
+        AgentThread.user_id == current_user.user_id,
+    )
     with SessionLocal() as db:
         agent_thread = db.scalar(statement)
         if agent_thread is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                                detail="对话不存在")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="对话不存在"
+            )
         restored_thread_id = agent_thread.thread_id
 
-    # RunContext把可信用户属性传入Supervisor,Tool和Retriver;只是用客户端恢复的用户属性，你不接受客户端的自爆身份
+    # RunContext 把可信用户属性传入 Supervisor、Tool 和 Retriever；
+    # 只使用服务端恢复的用户属性，不接受客户端自报的身份。
     context = RunContext(
         user_id=current_user.user_id,
         username=current_user.username,
@@ -131,7 +142,3 @@ def get_owned_runtime_session(
         thread_id=restored_thread_id,
         supervisor=supervisor,
     )
-
-
-
-

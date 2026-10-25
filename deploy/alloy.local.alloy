@@ -1,0 +1,32 @@
+// Grafana Alloy（Windows 本地联调）：tail 应用 stdout 重定向文件 -> Loki。
+//
+// 启动前：
+//   mkdir -p runtime/logs
+// 应用启动时把 stdout（JSON 日志）重定向到 runtime/logs/employee-agent.log：
+//   PYTHONUNBUFFERED=1 uv run uvicorn personal_assistant.agent_api:app \
+//     --host 127.0.0.1 --port 8000 2>&1 | tee -a runtime/logs/employee-agent.log
+//
+// 启动：
+//   alloy run deploy/alloy.local.alloy
+//
+// 不用 systemd journal，因为 Windows 没有 systemd；也不用 Docker。
+
+local.file_match "employee_agent" {
+  path_targets = [{
+    __path__  = "runtime/logs/employee-agent.log",
+    service   = "employee-agent",
+    env       = "local",
+    job       = "employee-agent",
+  }]
+}
+
+loki.source.file "employee_agent" {
+  targets    = local.file_match.employee_agent.targets
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}

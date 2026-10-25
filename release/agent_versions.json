@@ -1,0 +1,182 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-10-25T20:34:02+08:00",
+  "service": {
+    "name": "mutil-agent",
+    "version": "0.1.0",
+    "package": "personal_assistant",
+    "git_commit": "aba7c6e4bddd28ee2d1a6a373ad96e9916aedcb8"
+  },
+  "runtime": {
+    "python": "3.13.3",
+    "python_version_file": "3.13.3",
+    "python_constraint": ">=3.13",
+    "uv": "0.12.24",
+    "lockfile": "uv.lock",
+    "lockfile_sha256": "aa1d19d405b3634d5ba4daaed30251000d921bf6a5e2819fd1b50d5768011eef"
+  },
+  "agent": {
+    "prompt": {
+      "version": "prompt-1.0.0",
+      "kind": "inline-python-constant",
+      "source": "src/personal_assistant/multi_agent.py",
+      "items": [
+        {
+          "name": "supervisor",
+          "constant": "SUPERVISOR_PROMPT",
+          "sha256": "c6411bb11a0b500bba0154b326899e702f0b5cdb8da1c19777e3221cdd57462f"
+        },
+        {
+          "name": "knowledge_agent",
+          "constant": "KNOWLEDGE_AGENT_PROMPT",
+          "sha256": "7faa57f5cec43db7fb4b755c631b563dad476a59265be5749f29b0c65bb16e8b"
+        },
+        {
+          "name": "employee_service_agent",
+          "constant": "EMPLOYEE_SERVICE_AGENT_PROMPT",
+          "sha256": "b4380b1244cb8231a5a68c11b0173c9eec8a384ab9ec08cc8c0ff4be0e2c9768"
+        },
+        {
+          "name": "hr_agent",
+          "constant": "HR_AGENT_PROMPT",
+          "sha256": "b0659c70435e15a129460c0616425dae55a18ddfd42868f0603bcf8a042c5c85"
+        }
+      ]
+    },
+    "chat_model": {
+      "provider": "openai",
+      "model_id": "deepseek-v4.1-flash",
+      "client_class": "ChatReasoningEcho(ChatDeepSeek)",
+      "parameter_profile": "gateway-default:timeout=120s,max_retries=2",
+      "session_routing": "x-opencode-session-per-session",
+      "reasoning_content_echo": true
+    },
+    "tools": {
+      "version": "tools-1.0.0",
+      "items": [
+        {
+          "name": "search_company_knowledge",
+          "layer": "business",
+          "risk": "read-only",
+          "owner": "knowledge_agent"
+        },
+        {
+          "name": "find_department",
+          "layer": "business",
+          "risk": "read-only",
+          "owner": "employee_service_agent"
+        },
+        {
+          "name": "find_public_employee",
+          "layer": "business",
+          "risk": "read-only",
+          "owner": "employee_service_agent"
+        },
+        {
+          "name": "list_requestable_devices",
+          "layer": "business",
+          "risk": "read-only",
+          "owner": "employee_service_agent"
+        },
+        {
+          "name": "query_device_requests",
+          "layer": "business",
+          "risk": "read-only",
+          "owner": "employee_service_agent"
+        },
+        {
+          "name": "create_device_request",
+          "layer": "business",
+          "risk": "write",
+          "confirmation_required": true,
+          "owner": "employee_service_agent"
+        },
+        {
+          "name": "approve_device_request",
+          "layer": "business",
+          "risk": "write",
+          "confirmation_required": true,
+          "owner": "hr_agent",
+          "roles": [
+            "hr"
+          ]
+        },
+        {
+          "name": "ask_knowledge_agent",
+          "layer": "delegation",
+          "risk": "read-only",
+          "owner": "supervisor"
+        },
+        {
+          "name": "ask_employee_service_agent",
+          "layer": "delegation",
+          "risk": "write",
+          "confirmation_required": true,
+          "owner": "supervisor"
+        },
+        {
+          "name": "ask_hr_agent",
+          "layer": "delegation",
+          "risk": "write",
+          "confirmation_required": true,
+          "owner": "supervisor",
+          "roles": [
+            "hr"
+          ]
+        }
+      ]
+    },
+    "skills": {
+      "version": "none",
+      "items": [],
+      "note": "本项目未使用 Agent Skills；Skill 停在库外也不影响清单结构（Day01 §17.5 要求九类组件均有可追踪项）。"
+    },
+    "harness": {
+      "version": "harness-1.0.0",
+      "framework": "langgraph 1.2.14 / langchain 1.4.3",
+      "stop_policy": "langgraph-default-recursion-limit-25",
+      "confirmation_policy": "writes-require-interrupt-confirmation",
+      "checkpoint": "AsyncSqliteSaver keyed by thread_id; CHECKPOINT_DB default runtime/checkpoints.sqlite3",
+      "role_enforcement": "supervisor agent-tool filtering + business tool re-checks runtime.context.role",
+      "task_rewrite": "supervisor resolves pronouns/omissions from thread history before delegation",
+      "stream_timeout": "STREAM_TIMEOUT_SECONDS (default 300)"
+    }
+  },
+  "embedding": {
+    "version": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "model_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "provider": "huggingface/sentence-transformers",
+    "normalize_embeddings": true,
+    "dimension": 384,
+    "config_source": "EMBEDDING_MODEL"
+  },
+  "knowledge": {
+    "version": "day05_knowledge_documents@1.0",
+    "manifest": "src/knowledge/day05_knowledge_manifest.json",
+    "manifest_sha256": "1e060caf448913f34125b540dcd0140814c53988d3b93de08689562101ccfc17",
+    "content_sha256": "0cb1fc71e523f851e24e4e88f8007bc158dee7d7ec5b53c850a26f3930a04afd",
+    "document_count": 10,
+    "file_count": 11,
+    "retrieval": "allowed_roles filtered at query time (never after retrieval)"
+  },
+  "index": {
+    "version": "day05_knowledge@2026-10-14",
+    "path": "src/vector_store/index_manifest.json",
+    "sha256": "9683a067b451deffb9b3463fe2352bf898166da4e94081edc5eb6568c51c43dc",
+    "collection_name": "day05_knowledge",
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "chunk_size": 600,
+    "chunk_overlap": 120,
+    "chunk_count": 35,
+    "built_at": "2026-10-14T20:48:23+08:00",
+    "vision_model": "glm-5.3-flash"
+  },
+  "evaluation": {
+    "version": "acceptance-day06-v1.0",
+    "path": "tests/acceptance_day06.py",
+    "sha256": "3afa69fcb799ed0a442ed90e01af34f91a72c5220805e8c387eea716a769c233",
+    "spec": "docs/参考文档/Day06_多Agent综合项目：新员工助手升级.md",
+    "spec_sha256": "d5cd466e835376f01c46ad6c33a7330a4b13f615985eed41277b80983843740e",
+    "scenarios": "Day06 §12.1 固定验收场景（Agent-Tool 调用、业务 Tool 调用、最终答复、device_requests 实际状态）"
+  }
+}

@@ -10,7 +10,7 @@
       * 可重复执行：源不存在就跳过，不会因为跑第二遍而报错
       * 出错即停：$ErrorActionPreference = 'Stop'
 
-    依据：docs/Day06_执行计划_v2.md §5.1（D4 决策：可导入代码全部收进 src/，
+    依据：docs/plans/Day06_执行计划_v2.md §5.1（D4 决策：可导入代码全部收进 src/，
     数据目录收在 src/ 下、包外；.env 与构建配置留仓库根）。
 #>
 [CmdletBinding()]

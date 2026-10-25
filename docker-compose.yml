@@ -1,0 +1,198 @@
+# =============================================================================
+# 多 Agent 员工助手 —— 本地一键起（MySQL + 应用）
+#
+#   cp .env.example .env      # 填 API_KEY / BASE_URL（其余用下面的默认值即可）
+#   docker compose up -d --build
+#   打开 http://localhost:8000/     教学账号：zhang_wei / 123456
+#
+# 三个服务：
+#   mysql   —— 业务数据。表结构与种子数据由 src/migrations/sql/day06_mysql_setup.sql
+#              建，**只在数据卷首次初始化时执行一次**。
+#   db-init —— 一次性：建 'agent_app'@'%' 账号（只给 DML）+ 登记 alembic 账本，
+#              跑完即退；app 用 service_completed_successfully 等它。
+#   app     —— FastAPI（同时托管前端静态页）。会话检查点是 SQLite，挂在 ./runtime，
+#              所以容器重启后对话历史与中断位置都还在。
+#
+# 为什么数据库要两个账号：建账号、登记 alembic 账本都要 DDL 权限，那是 db-init 的事；
+# 应用容器只拿到只有 SELECT/INSERT/UPDATE/DELETE 的 agent_app（与
+# scripts/day05_mysql_setup.sql 的设计一致）。
+#
+# 变量从当前目录的 .env 读（compose 的默认行为），所以不用 --env-file。
+# 下面每个变量都写了默认值，不配也能起来。
+# =============================================================================
+
+name: mutil-agent
+
+x-app-image: &app-image
+  image: mutil-agent:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      # 基础镜像走哪个 registry。默认空 = Docker Hub。
+      # 国内服务器直连不通 registry-1.docker.io，构建第一步就会
+      # `Head "https://registry-1.docker.io/v2/...": EOF`。这时在 .env 里设：
+      #     DOCKER_MIRROR=docker.m.daocloud.io/library/    # 结尾斜杠别漏
+      REGISTRY: ${DOCKER_MIRROR:-}
+      # uv 二进制的来源。ghcr.io 在虚拟机上经常连不通，这时在 .env 里设：
+      #     UV_IMAGE=ghcr.m.daocloud.io/astral-sh/uv:latest
+      UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:latest}
+
+services:
+
+  mysql:
+    # 同样可换镜像站：MYSQL_IMAGE=docker.m.daocloud.io/library/mysql:8.4
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    container_name: mutil-agent-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ChangeMe-Root!}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent_service}
+      # 中文乱码的根因就在这里。
+      # mysql 客户端的 --default-character-set 默认是 auto，auto 去读操作系统的
+      # locale。官方镜像里 LANG 是空的（C/POSIX），客户端于是挑中 **latin1**，
+      # 初始化脚本里那份 UTF-8 的 day06_mysql_setup.sql 里的中文就被按 latin1 解析，
+      # 再以 utf8mb4 存进库 —— 存进去的是双重编码的字节。
+      #   实测：USR-001 的 display_name 存成 C3A5C2BCC2A0C3A4C2BCC5B8，
+      #   正确值 E5BCA0E4BC9F（"张伟"），前端显示成 "å¼ ä¼Ÿ"。
+      # 设了 LANG 之后 character_set_client 就是 utf8mb4。
+      #
+      # 为什么不用挂一个 conf.d/xxx.cnf：bind mount 进来的文件权限是 0777，
+      # MySQL 会以 "World-writable config file ... is ignored" 为由整个跳过它
+      # （Windows 上是这样，Linux 上权限正常就又能生效 —— 行为不一致，不能用）。
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    ports:
+      # 应用容器是走 compose 内部网络直连 mysql:3306 的，**不需要**这个映射。
+      # 留着只是为了能用命令行 / GUI 连进去看数据。
+      # 只绑宿主机回环地址（127.0.0.1），不要用 0.0.0.0 —— 那等于把数据库开到公网。
+      # 服务器上要连就用 SSH 隧道：ssh -L 3307:127.0.0.1:3307 user@server
+      # 完全不需要就删掉这两行，并把下面 healthcheck 保留（那个在容器内跑）。
+      - "${MYSQL_BIND:-127.0.0.1}:${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 建表 + 种子数据（27 名员工、19 条设备申请、10 个可登录账号，口令 123456）
+      - ./src/migrations/sql/day06_mysql_setup.sql:/docker-entrypoint-initdb.d/10-day06_mysql_setup.sql:ro
+    healthcheck:
+      # 官方镜像在初始化期间用的是 socket、不开 TCP；ping 走 --protocol=tcp，
+      # 所以「初始化没结束」就等于 unhealthy —— 正是我们要的语义。
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - --protocol=tcp
+        - -h
+        - 127.0.0.1
+        - -uroot
+        - -p${MYSQL_ROOT_PASSWORD:-ChangeMe-Root!}
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    logging:
+      # json-file 默认不限大小：长期跑会把 /var/lib/docker 写满，
+      # 机器上所有容器一起挂（"no space left on device"）。
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  db-init:
+    <<: *app-image
+    container_name: mutil-agent-db-init
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    # 只跑初始化脚本，跑完即退。不继承镜像的 ENTRYPOINT（那个会去起 uvicorn）
+    entrypoint: ["python", "/app/docker/bootstrap_db.py"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-agent_service}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ChangeMe-Root!}
+      MYSQL_APP_USER: ${MYSQL_APP_USER:-agent_app}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-ChangeMe-App!}
+      # 应用模块（personal_assistant.database）在 import 期就要求 DATABASE_URL，
+      # alembic 的 env.py 又会 import 它 —— 所以这里必须给一个。
+      # 用管理员账号；应用容器拿到的是下面的最小权限账号。
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-ChangeMe-Root!}@mysql:3306/${MYSQL_DATABASE:-agent_service}?charset=utf8mb4
+      MIGRATION_DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-ChangeMe-Root!}@mysql:3306/${MYSQL_DATABASE:-agent_service}?charset=utf8mb4
+      RUN_MIGRATIONS: "1"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  app:
+    <<: *app-image
+    container_name: mutil-agent-app
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    # .env 是仓库里那份（gitignored）：MODEL_PROVIDER / API_KEY / BASE_URL /
+    # VISION_* / EMBEDDING_MODEL / JWT_SECRET 都从它来。
+    # 没有 .env 也能起（required: false），只是模型调用会缺配置。
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # 覆盖 .env 里的 127.0.0.1：容器里要连 compose 网络中的 mysql 服务，
+      # 账号是 db-init 刚授过权的 agent_app（只有 DML 权限）
+      DATABASE_URL: mysql+pymysql://${MYSQL_APP_USER:-agent_app}:${MYSQL_APP_PASSWORD:-ChangeMe-App!}@mysql:3306/${MYSQL_DATABASE:-agent_service}?charset=utf8mb4
+      CHECKPOINT_DB: runtime/checkpoints.sqlite3
+    ports:
+      # 默认 0.0.0.0 —— 服务器上要能被外网访问。
+      # 前面挂 nginx / Caddy 做 HTTPS 时改成 APP_BIND=127.0.0.1，只让反代进来。
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-8000}:8000"
+    # restart: unless-stopped 只处理「进程退出」，进程活着但卡死（模型调用挂住、
+    # 事件循环阻塞）它发现不了。健康检查补的就是这一块。
+    # 镜像里没有 curl/wget，只能用 python 探；应用也没有 /health 端点，
+    # 探 / 能拿到 200 就说明 uvicorn 已经在服务了。
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # 首启要加载 embedding 权重 + 等 MySQL 迁移完，别急着判死
+      start_period: 90s
+    # 停止时给 LangGraph 留时间把 SQLite 检查点写完（默认只等 10 秒）
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    # 资源限制：练手机器内存小的时候别开，开了反而换来「莫名 OOM 重启」。
+    # 等真上生产、和别的服务挤一台机器时再取消注释，按实际内存填：
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 4g
+    volumes:
+      # LangGraph 会话检查点（SQLite）：跨容器重启保留消息历史与 interrupt 位置。
+      # 不挂的话每次重建容器历史就没了（「重启后历史全没了」的经典成因）。
+      #
+      # 用**命名卷**而不是 ./runtime 绑定宿主目录，是为了换服务器能直接跑：
+      # 绑定挂载时，宿主目录若不存在，Linux 上的 Docker 会把它建成 root 所有，
+      # 而容器里的应用是 uid 1000 —— 写不进检查点，现象是「服务起得来、
+      # 一登录就 500」。命名卷则是照抄镜像里 /app/runtime 的属主（见 Dockerfile），
+      # 到哪台机器都对。
+      # 代价：检查点不在宿主目录里了，要看用
+      #   docker compose exec app sqlite3 /app/runtime/checkpoints.sqlite3 ...
+      # 要清空就 docker compose down -v
+      - app-runtime:/app/runtime
+      # Chroma 向量索引。同样是命名卷，原因同上 —— 而且 Chroma 的 SQLite
+      # 即使只做检索也要写权限（会建 WAL/journal），不是"只读挂载就安全"。
+      # 镜像里已经烘了一份索引，首次创建卷时会被拷进来，所以启动不依赖下载。
+      - app-vector-store:/app/src/vector_store
+
+volumes:
+  mysql-data:
+  app-runtime:
+  app-vector-store:

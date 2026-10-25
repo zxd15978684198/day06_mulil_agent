@@ -1,6 +1,3 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Any
-
 # class RequestModel(BaseModel):
 #     """所有请求字符串都想去掉首尾空格"""
 #     model_config = ConfigDict(str_strip_whitespace=True)
@@ -34,8 +31,6 @@ from typing import Any
 #     confirmation: dict[str, Any] | None = None
 #     # 每个响应都应创建自己的空列表，避免共享对象
 #     trace: list[dict[str, Any]] = Field(default_factory=list)
-
-
 from datetime import datetime
 from typing import Any, Literal
 
@@ -109,5 +104,3 @@ class AgentReply(BaseModel):
     needs_confirmation: bool = False
     confirmation: dict[str, Any] | None = None
     trace: list[dict[str, Any]] = Field(default_factory=list)
-
-

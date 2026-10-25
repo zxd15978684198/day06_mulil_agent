@@ -13,10 +13,12 @@ import asyncio
 import json
 import threading
 import warnings
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from personal_assistant.database import engine
 from personal_assistant.knowledge_base import (
     INDEX_MANIFEST_PATH,
     ensure_writable_tempdir,
@@ -29,6 +31,11 @@ from personal_assistant.multi_agent import (
     outer_trace,
 )
 from personal_assistant.paths import checkpoint_path
+from personal_assistant.structured_logging import configure_logging
+from personal_assistant.telemetry import (
+    setup_telemetry,
+    shutdown_telemetry,
+)
 
 
 def ask(prompt: str) -> str | None:
@@ -45,7 +52,7 @@ def ask(prompt: str) -> str | None:
         return None
 
 
-def print_result(result: dict) -> None:
+def print_result(result: dict[str, Any]) -> None:
     """打印最终回答和可观察的 Supervisor 路由证据。"""
 
     answers = [
@@ -76,14 +83,18 @@ def print_result(result: dict) -> None:
 
 
 async def handle_interrupts(
-    app: MultiAgentApplication, session: UserSession, result: dict
-) -> dict:
+    app: MultiAgentApplication,
+    session: UserSession,
+    result: dict[str, Any],
+) -> dict[str, Any]:
     """显示确认内容，并用同一 Thread 恢复暂停的执行。"""
 
     while interrupts := result.get("__interrupt__", ()):
-        # R2（技术方案评审提出，2026-10-08）：一轮里若同时产生多个暂停，本实现与课件一致，
+        # R2（技术方案评审提出，2026-10-08）：
+        # 一轮里若同时产生多个暂停，本实现与课件一致，
         # **只确认第一个**（`interrupts[0]`），其余仍挂在图上等下一轮 resume。
-        # 目前正常流程（一次只写一条）不会触发；这里加一条显式告警，避免将来"以为都处理了"。
+        # 目前正常流程（一次只写一条）不会触发；
+        # 这里加一条显式告警，避免将来"以为都处理了"。
         if len(interrupts) > 1:
             print(
                 f"\n[警告] 本轮同时有 {len(interrupts)} 个待确认操作，"
@@ -152,12 +163,16 @@ def main() -> None:
     # LangChain 解析工具入参时会对 args_schema 做一次 `model_dump()`
     # （langchain_core/tools/base.py 的 _parse_input），而带 `runtime: ToolRuntime[...]`
     # 的工具，其 schema 把注入的 context 声明为 None；实际值却是 RunContext 对象 ——
-    # pydantic 于是发出 PydanticSerializationUnexpectedValue（期望 none，拿到 RunContext）。
+    # pydantic 于是发出 PydanticSerializationUnexpectedValue
+    # （期望 none，拿到 RunContext）。
     #
     # 为什么可以忽略：这只发生在**入参解析的序列化**上，工具实际收到的仍是真实的
     # RunContext（角色与权限判定全部正常，19 条端到端验收覆盖了这条路径）。
     # 这里**只过滤这一条消息**，不是"忽略所有告警"。
     warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
+    # 结构化日志只写 stdout；采集交给 Grafana Alloy，不在应用里写文件。
+    configure_logging()
 
     # 环境适配放在入口：库本身不改进程全局状态（正常机器上是空操作）。
     ensure_writable_tempdir()
@@ -168,7 +183,12 @@ def main() -> None:
             "尚未构建向量库，请先运行 build_index.py（uv run python build_index.py）"
         )
 
-    asyncio.run(amain())
+    # 默认 no-op；配置了 OTLP/console 才真正启用。CLI 与 Web 是两个进程，各自初始化。
+    setup_telemetry(engine=engine)
+    try:
+        asyncio.run(amain())
+    finally:
+        shutdown_telemetry()
 
 
 def _warm_up_in_background() -> None:
@@ -189,7 +209,9 @@ async def amain() -> None:
     `async with` 负责关闭 —— 这就是「重启后还有历史」的总开关。
     """
 
-    async with AsyncSqliteSaver.from_conn_string(str(checkpoint_path())) as checkpointer:
+    async with AsyncSqliteSaver.from_conn_string(
+        str(checkpoint_path())
+    ) as checkpointer:
         app = MultiAgentApplication(checkpointer=checkpointer)
 
         # 预热只读索引：用 daemon 线程而不是启动期阻塞 —— 登录与打字的时间足够它加载完，

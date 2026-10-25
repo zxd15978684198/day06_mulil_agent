@@ -1,0 +1,60 @@
+# 默认让 Git 判断文本/二进制；具体类型在下面显式固定。
+* text=auto
+
+# 源码、配置、文档、脚本：固定 LF（Linux CI / Docker / Shell 一致）
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.ipynb text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.svg text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.env.example text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.python-version text eol=lf
+requirements.txt text eol=lf
+uv.lock text eol=lf
+
+# Windows 脚本：固定 CRLF（PowerShell / cmd 的常规格式）
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止换行转换，避免 Git 改坏文件
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.sqlite3 binary
+*.bin binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.onnx binary
+*.pt binary
+*.pth binary
+*.safetensors binary

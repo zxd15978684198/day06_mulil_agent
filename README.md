@@ -1,4 +1,4 @@
-# 星桥科技 · 新员工助手（多 Agent）
+wo# 星桥科技 · 新员工助手（多 Agent）
 
 > Week15 / Day06 教学项目。基于 **LangChain 1.4 + LangGraph 1.2**，用
 > **Supervisor + Agent-as-Tool** 架构做一个新员工助手：既能按角色查公司制度知识库，
@@ -42,15 +42,15 @@
 | 项 | 状态 |
 | --- | --- |
 | 后端 6 个施工阶段（P0–P9） | 全部执行完毕 |
-| 阶段通过信号 `src/tests` | **12/12 PASS**（A1–A7 确定性 + B1–B5 真实模型）——项目记录 |
-| §8 端到端验收 `src/tests` | **20/20 PASS**——项目记录，⚠️ **见下方数据基线警告，现已失效** |
+| 阶段通过信号 `tests` | **12/12 PASS**（A1–A7 确定性 + B1–B5 真实模型）——项目记录 |
+| §8 端到端验收 `tests` | **20/20 PASS**——项目记录，⚠️ **见下方数据基线警告，现已失效** |
 | 前端 `P0`–`P11`（含三档追加需求） | 全部执行完毕，阶段证据见 [`frontend/test/`](frontend/test/README.md) |
 | 索引 | 10 份资料 / 36 chunk / 解析失败 0 |
 | 业务数据 | 设备申请（真源 = MySQL `agent_service.device_requests` 表；条数随验收/网页测试漂移，**以库中实际为准**） |
 
 **这不是「课件代码照抄」**：目录布局改成了 src 布局，路径解析、权限过滤、切分参数、
 模型构造等处都有对课件的有意偏离，**每一条都登记在
-[`docs/Day06_执行计划_v2.md`](docs/Day06_执行计划_v2.md) 的「变更记录 C1–C12」**；
+[`docs/plans/Day06_执行计划_v2.md`](docs/plans/Day06_执行计划_v2.md) 的「变更记录 C1–C12」**；
 前端对 `frontend/` 与后端接口的每一条约定都冻结在
 [`frontend/CONTRACTS.md`](frontend/CONTRACTS.md)（`C1`–`C9` 契约 / `K1`–`K11` 坑 / `D1`–`D6` 构建契约）。
 
@@ -192,7 +192,7 @@ mutil_agent/
     └── test/                     ← 三个测试脚本 + README（不参与打包）
 ```
 
-> ⚠️ `src/tests` 会遮蔽标准库的 `test` 包（`src` 在 `sys.path` 上）。对本项目无影响，
+> ⚠️ `tests` 会遮蔽标准库的 `test` 包（`src` 在 `sys.path` 上）。对本项目无影响，
 > 但如果日后要 `import test.*`，需把目录改名（惯例 `tests/`）。
 
 ---
@@ -274,7 +274,7 @@ FastAPI 自带 `/docs`（Swagger UI），三条业务路由都能直接调；`/`
 > 「登录失败：未找到可登录的教学账号」。
 > 全部 10 个可登录账号（`wang_fang` / `zheng_kai` / `zhang_wei` / `li_na` / `chen_hao` /
 > `liu_yang` / `zhao_min` / `zhou_jie` / `sun_yue` / `wu_ting`）与踩坑说明见
-> [`docs/CLI_使用与实现流程.md`](docs/CLI_使用与实现流程.md) §3；
+> [`docs/指导文档/CLI_使用与实现流程.md`](docs/指导文档/CLI_使用与实现流程.md) §3；
 > 另外 17 条 `EMP-*` 记录没有 `username`，**设计上就登不进来**。
 
 ---
@@ -319,7 +319,7 @@ FastAPI 自带 `/docs`（Swagger UI），三条业务路由都能直接调；`/`
 
 | 计划里写的 | 实现里是 | 影响 |
 | --- | --- | --- |
-| `GET /api/health` → `{"status":"ok"}` | **不存在** | `docs/Day06_Agent封装成WebAPI_实现路径.md` 的验收 #1、#12 无法按原口径执行 |
+| `GET /api/health` → `{"status":"ok"}` | **不存在** | `docs/plans/Day06_Agent封装成WebAPI_实现路径.md` 的验收 #1、#12 无法按原口径执行 |
 | `POST /api/confirm` | `POST /api/confirmation` | 命名漂移 |
 | `POST /api/chat` | 已**整段注释掉**（`agent_api.py:157-175`），改走 `POST /api/chat/stream` | 老文档里的 curl 示例会 404 |
 | `uv run python -m uvicorn webapp:app` | 模块名是 `personal_assistant.agent_api` | 按旧名启动会起不来 |
@@ -408,19 +408,19 @@ FastAPI 自带 `/docs`（Swagger UI），三条业务路由都能直接调；`/`
 
 退出码 **0 = 全通过**。
 
-### 9.1 后端两个脚本（`src/tests`）
+### 9.1 后端两个脚本（`tests`）
 
 ```bash
 # 阶段通过信号：12 项（A1–A7 确定性 + B1–B5 需真实模型），约 1 分钟
-uv run python -u src/tests/verify_phase5.py
+uv run python -u tests/verify_phase5.py
 
 # §8 端到端验收：20 条场景，约 3–5 分钟
-uv run python -u src/tests/acceptance_day06.py
-uv run python -u src/tests/acceptance_day06.py --only 6,9,12,13,14,15,19,20   # 只跑确定性场景
-uv run python -u src/tests/acceptance_day06.py --list                        # 列场景清单
+uv run python -u tests/acceptance_day06.py
+uv run python -u tests/acceptance_day06.py --only 6,9,12,13,14,15,19,20   # 只跑确定性场景
+uv run python -u tests/acceptance_day06.py --list                        # 列场景清单
 
 # 第四阶段最小复现（只读，秒级）
-uv run python -u src/tests/verify_phase4_repro.py
+uv run python -u tests/verify_phase4_repro.py
 ```
 
 * 逐条要求**四者相互印证**：Agent Tool 调用 / 业务 Tool 调用 / 最终回答 / **数据文件实际状态**；
@@ -456,7 +456,7 @@ node ..\.tmp\tw_check.cjs
 稳定的不变量是 `USR-001` 名下 4 条）；对不上说明还原失败。需要手工回灌时：
 
 ```powershell
-uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; print(db_state.load_requests_backup('.tmp/day05_device_requests.backup.json'))"
+uv run python -c "import sys; sys.path[:0]=['src','tests']; import db_state; print(db_state.load_requests_backup('.tmp/day05_device_requests.backup.json'))"
 ```
 
 ---
@@ -503,6 +503,39 @@ uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; 
 | 文本切分 | `langchain-text-splitters` 1.1.3（langchain 1.x 不再内置，**额外加的**） |
 | 文档解析 | `pypdf`、`pypdfium2`、`python-docx`、`beautifulsoup4`、`rapidocr-onnxruntime`、`pillow` |
 | 配置 | `python-dotenv` 1.2.4 |
+| 可观测性 | `opentelemetry-api/sdk` 1.45.1、`opentelemetry-exporter-otlp-proto-http` 1.45.1、`opentelemetry-instrumentation-fastapi/httpx/sqlalchemy` 0.66b1、`openinference-instrumentation-langchain` 0.1.80 |
+
+### 11.1 可观测性（可选，默认关闭）
+
+应用侧埋点代码在 `src/personal_assistant/`：
+
+- `telemetry.py`：Trace / Metrics 初始化、OTLP 导出、FastAPI/HTTPX/SQLAlchemy/LangChain 插桩；
+- `request_context.py`：`thread_id / request_id / run_id` 与 Langfuse 属性；
+- `structured_logging.py`：stdout JSON 日志（不写文件、不用 OTel Logs SDK）；
+- `metrics.py`：成功率、耗时、RAG、Tool、Token 指标。
+
+默认不配置 `OTEL_EXPORTER_OTLP_ENDPOINT` 时**完全 no-op**，不影响本地开发和测试。
+需要观测时按 [`docs/指导文档/运行手册.md`](docs/指导文档/运行手册.md) 启动：
+
+```text
+应用 ──OTLP──► Collector ──┬─► Langfuse Cloud EU（Trace）
+                            └─► :8889 /metrics ◄── Prometheus
+应用 stdout JSON ──► Grafana Alloy ──► Loki
+```
+
+关键环境变量（完整见 `.env.example`）：
+
+```dotenv
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+OTEL_TRACES_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=otlp
+OTEL_LOGS_EXPORTER=none
+OPENINFERENCE_HIDE_INPUTS=true
+OPENINFERENCE_HIDE_OUTPUTS=true
+```
+
+本地只想在终端看 Trace：`OTEL_TRACES_EXPORTER=console`。
+测试默认 `OTEL_SDK_DISABLED=true`，不会向 Collector 发数据。
 
 **前端**：React 19、Vite 8、TypeScript 6、Tailwind CSS 4、`motion`、`react-markdown` + `remark-gfm`
 （`frontend/package.json`）。**刻意不引入 react-router** —— 只有登录/对话两个视图，
@@ -601,9 +634,9 @@ uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; 
 
 | 文件 | 用途 |
 | --- | --- |
-| [`docs/Day06_执行计划_v2.md`](docs/Day06_执行计划_v2.md) | **本项目的执行计划与工程记录**：§4 课件未给全模块的设计决策、§5 目录布局、§8 的 20 条验收口径、§9 已知限制（14 条）、**变更记录 C1–C12**（含对课件的有意偏离与理由） |
-| [`docs/Day06_Agent封装成WebAPI_实现路径.md`](docs/Day06_Agent封装成WebAPI_实现路径.md) | 后端 Web 化的实现路径与验收口径（⚠️ 部分口径与实现有差异，见 §6.1） |
-| [`docs/Day06_前端执行计划.md`](docs/Day06_前端执行计划.md) | 前端的分步实现路径（`P0`–`P8`）、契约与边界、验收清单、已知限制 |
+| [`docs/plans/Day06_执行计划_v2.md`](docs/plans/Day06_执行计划_v2.md) | **本项目的执行计划与工程记录**：§4 课件未给全模块的设计决策、§5 目录布局、§8 的 20 条验收口径、§9 已知限制（14 条）、**变更记录 C1–C12**（含对课件的有意偏离与理由） |
+| [`docs/plans/Day06_Agent封装成WebAPI_实现路径.md`](docs/plans/Day06_Agent封装成WebAPI_实现路径.md) | 后端 Web 化的实现路径与验收口径（⚠️ 部分口径与实现有差异，见 §6.1） |
+| [`docs/plans/Day06_前端执行计划.md`](docs/plans/Day06_前端执行计划.md) | 前端的分步实现路径（`P0`–`P8`）、契约与边界、验收清单、已知限制 |
 
 ### 接口契约（**改前端前必读**）
 
@@ -616,18 +649,18 @@ uv run python -c "import sys; sys.path[:0]=['src','src/test']; import db_state; 
 
 | 文件 | 用途 |
 | --- | --- |
-| [`docs/CLI_用户操作流程.md`](docs/CLI_用户操作流程.md) | **CLI 用户视角**：五分钟上手、登录账号、能问什么（按身份）、写操作确认、切账号退出、常见问题、一分钟自检 |
-| [`docs/CLI_使用与实现流程.md`](docs/CLI_使用与实现流程.md) | **CLI 技术视角**：一次 `你：` 输入在代码里走过的**完整调用链（带行号）**、中断与恢复、路由证据来源、关键设计点与常见告警解释 |
-| [`src/tests`](src/tests/README.md) | 三个测试脚本的运行方式、执行顺序理由、数据安全、判定口径注意点（含五处弱断言的修法） |
+| [`docs/指导文档/CLI_用户操作流程.md`](docs/指导文档/CLI_用户操作流程.md) | **CLI 用户视角**：五分钟上手、登录账号、能问什么（按身份）、写操作确认、切账号退出、常见问题、一分钟自检 |
+| [`docs/指导文档/CLI_使用与实现流程.md`](docs/指导文档/CLI_使用与实现流程.md) | **CLI 技术视角**：一次 `你：` 输入在代码里走过的**完整调用链（带行号）**、中断与恢复、路由证据来源、关键设计点与常见告警解释 |
+| [`tests`](tests/README.md) | 三个测试脚本的运行方式、执行顺序理由、数据安全、判定口径注意点（含五处弱断言的修法） |
 | [`frontend/test/`](frontend/test/README.md) | 前端各阶段流程文档 + `shots/` 真机截图 |
 
 ### 课件（上游规格）
 
 | 文件 | 用途 |
 | --- | --- |
-| [`docs/Day06_多Agent综合项目：新员工助手升级.md`](docs/Day06_多Agent综合项目：新员工助手升级.md) | 课件：架构与代码的权威规格（§5.1 布局、§5.3 向量库流水线、§6 Tool 边界、§7–§10 逐段代码、§12.1 验收场景） |
-| [`docs/Day05_综合案例：新员工助手Agent.md`](docs/Day05_综合案例：新员工助手Agent.md) | 课件（单 Agent 基线）：§2.3 权限矩阵、§2.4 知识字段语义、§2.5 四份 JSON 关联、**附录 A JSON 字段速查** |
-| [`docs/Day06_执行计划.md`](docs/Day06_执行计划.md) | 上一版执行计划（被 `_v2` 取代，保留作对照） |
+| [`docs/参考文档/Day06_多Agent综合项目：新员工助手升级.md`](docs/参考文档/Day06_多Agent综合项目：新员工助手升级.md) | 课件：架构与代码的权威规格（§5.1 布局、§5.3 向量库流水线、§6 Tool 边界、§7–§10 逐段代码、§12.1 验收场景） |
+| [`docs/参考文档/Day05_综合案例：新员工助手Agent.md`](docs/参考文档/Day05_综合案例：新员工助手Agent.md) | 课件（单 Agent 基线）：§2.3 权限矩阵、§2.4 知识字段语义、§2.5 四份 JSON 关联、**附录 A JSON 字段速查** |
+| [`docs/plans/Day06_执行计划.md`](docs/plans/Day06_执行计划.md) | 上一版执行计划（被 `_v2` 取代，保留作对照） |
 
 ---
 
@@ -638,8 +671,8 @@ uv sync
 uv run python build_index.py
 
 # 后端验收（⚠️ 先处理 §1 的数据基线冲突）
-uv run python -u src/tests/verify_phase5.py        # 期望 12/12，exit 0
-uv run python -u src/tests/acceptance_day06.py     # 期望 20/20，exit 0
+uv run python -u tests/verify_phase5.py        # 期望 12/12，exit 0
+uv run python -u tests/acceptance_day06.py     # 期望 20/20，exit 0
 
 # CLI 手测
 uv run python main.py                             # zhang_wei 登录，试一句：

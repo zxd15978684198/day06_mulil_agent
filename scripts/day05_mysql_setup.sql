@@ -185,7 +185,7 @@ SELECT 'device_requests', COUNT(*) FROM device_requests;
 
 -- ============================================================================
 -- 以下为【本项目本地增量】，不属于 Week16 Day05 课件原文。
--- 依据：docs/状态持久化升级计划.md 决策 D1 —— 项目 src/data/day05_device_requests.json
+-- 依据：docs/plans/状态持久化升级计划.md 决策 D1 —— 项目 src/data/day05_device_requests.json
 --       实有 19 条申请，而课件 SQL 只灌 18 条；多出的 REQ-2026-0019 是真实业务数据
 --       （非测试残留），补插不丢。
 -- 时间口径：JSON 存本地时间（+08:00），入库统一转 UTC，与课件的 18 条保持一致

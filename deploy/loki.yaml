@@ -1,0 +1,41 @@
+# Loki 单机模式最小配置（本地文件系统）。
+# 启动示例：
+#   loki -config.file=deploy/loki.yaml
+#
+# 生产环境请按实际 Loki 版本核对 schema/compactor 配置，并把存储换成对象存储。
+# 本地 7 天保留：把 retention_period 改成 168h。
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /var/lib/loki
+  storage:
+    filesystem:
+      chunks_directory: /var/lib/loki/chunks
+      rules_directory: /var/lib/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 720h   # 30 天
+
+compactor:
+  working_directory: /var/lib/loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true

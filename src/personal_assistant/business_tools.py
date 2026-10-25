@@ -3,7 +3,8 @@
 本模块是项目的**业务权限闸门**：所有身份判断都在这里执行，且都在**执行端**
 （不是靠 Prompt 提示）。
 
-* ``RunContext`` 由应用构造并注入（身份只来自数据库里的教学账号），Tool 签名里没有身份参数；
+* ``RunContext`` 由应用构造并注入（身份只来自数据库里的教学账号）；
+  Tool 签名里没有身份参数；
 * ``ROLE_PERMISSIONS`` 是课件 Day05 §2.3 的角色权限矩阵，**保持不变**；
 * 每个 Tool 第一句取 ``runtime.context``，再判权限，再校验参数与业务状态；
 * 写操作（创建 / 审批）在写库前调用 ``interrupt()`` 等人工确认，且**不跨 ``interrupt()``
@@ -22,7 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -32,12 +35,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from personal_assistant.database import SessionLocal
-from personal_assistant.models import Department, Device, DeviceRequest, User, utc_now
 
 # §4.2 硬约束：multi_agent.py 从本模块导入这些名字。检索 Tool 的实现与 Chroma
 # 访问都在 knowledge_base，这里只做名字导出（工具名已由
 # @tool("search_company_knowledge") 固定，函数名保持 knowledge_base.search_knowledge）。
-from personal_assistant.knowledge_base import search_knowledge as search_company_knowledge
+from personal_assistant.knowledge_base import (
+    search_knowledge as search_company_knowledge,
+)
+from personal_assistant.models import Department, Device, DeviceRequest, User, utc_now
 
 VALID_REQUEST_STATUSES = ("pending", "approved", "rejected")
 VALID_REVIEW_DECISIONS = ("approved", "rejected")
@@ -111,10 +116,12 @@ def _ok(data: Any) -> str:
 
 
 def _err(code: str, message: str) -> str:
-    return json.dumps({"ok": False, "error": code, "message": message}, ensure_ascii=False)
+    return json.dumps(
+        {"ok": False, "error": code, "message": message}, ensure_ascii=False
+    )
 
 
-def _iso_z(moment: Any) -> str | None:
+def _iso_z(moment: datetime | str | None) -> str | None:
     """把库里的 naive UTC `datetime` 输出成 `…Z` 字符串（None 原样返回）。
 
     升级前 JSON 里存的是带本地偏移的字符串（`…+08:00`），升级后库里统一存
@@ -248,7 +255,9 @@ def _request_data(
 # --------------------------------------------------------------------------
 
 
-def _display_name_map(db: Session, user_ids: list[str]) -> dict[str, str]:
+def _display_name_map(
+    db: Session, user_ids: Sequence[str | None]
+) -> dict[str, str | None]:
     """一次查询把若干 user_id 映射成 display_name（避免逐行 N+1 查询）。"""
     wanted = {uid for uid in user_ids if uid}
     if not wanted:
@@ -329,9 +338,7 @@ def find_public_employee(query: str, runtime: ToolRuntime) -> str:
         return _err("invalid_argument", "query 不能为空")
 
     with SessionLocal() as db:
-        users = list(
-            db.scalars(select(User).where(User.is_public.is_(True))).all()
-        )
+        users = list(db.scalars(select(User).where(User.is_public.is_(True))).all())
         # 部门名称也参与匹配：调用方（模型）很可能传「信息技术部」而不是「DEPT-IT」，
         # 只匹配编号会让「软件账号开通找谁」这条链路断在第二步。
         department_names = {
@@ -445,8 +452,8 @@ def query_device_requests(runtime: ToolRuntime, status: str | None = None) -> st
             _request_data(
                 record,
                 device_name=device_name,
-                applicant_name=names.get(record.applicant_user_id),
-                reviewer_name=names.get(record.reviewer_user_id),
+                applicant_name=names.get(record.applicant_user_id or ""),
+                reviewer_name=names.get(record.reviewer_user_id or ""),
             )
             for record, device_name in rows
         ]
@@ -472,9 +479,11 @@ def query_device_requests(runtime: ToolRuntime, status: str | None = None) -> st
 #
 # ⚠️ 为什么不能在这里直接 `uuid4()`（实测踩过，已修）：`interrupt()` 恢复时**整个函数
 #    从头重跑**（LangGraph 从该节点入口重新执行），于是 `uuid4()` 会重新摇一次 ——
-#    确认页上给用户看的编号与真正写进库的编号不是同一个，而且"按编号查重"的幂等护栏
+#    确认页上给用户看的编号与真正写进库的编号不是同一个，
+#    而且"按编号查重"的幂等护栏
 #    永远命中不了。现场证据：acceptance_day06 场景 7 打印
-#    「真实申请编号: None（未预设 0019）/ 新记录: {}」，而那一行其实已经写进库（19 -> 20）。
+#    「真实申请编号: None（未预设 0019）/ 新记录: {}」，
+#    而那一行其实已经写进库（19 -> 20）。
 #    改法：编号由 `runtime.tool_call_id` 派生 —— 同一轮工具调用恢复后重跑得到同一个值。
 # --------------------------------------------------------------------------
 
@@ -533,7 +542,7 @@ def create_device_request(
             f"quantity 必须在 1 到 {limit} 之间（该设备单次上限 {limit}）",
         )
 
-    candidate = {
+    candidate: dict[str, Any] = {
         "request_id": _candidate_request_id(runtime),
         "applicant_user_id": _field(context, "user_id"),
         "applicant_name": _field(context, "display_name"),
@@ -564,8 +573,8 @@ def create_device_request(
                     "request": _request_data(
                         existing,
                         device_name=device.name if device else None,
-                        applicant_name=names.get(existing.applicant_user_id),
-                        reviewer_name=names.get(existing.reviewer_user_id),
+                        applicant_name=names.get(existing.applicant_user_id or ""),
+                        reviewer_name=names.get(existing.reviewer_user_id or ""),
                     ),
                 }
             )
@@ -596,7 +605,6 @@ def approve_device_request(
     request_id: str, decision: str, runtime: ToolRuntime, comment: str = ""
 ) -> str:
     """批准或拒绝一条**待审批**的设备申请（仅 HR；需要人工确认后才会写入）。"""
-    context = _context_of(runtime)
     denied = _require(runtime, "review_device_requests")
     if denied:
         return denied

@@ -26,8 +26,9 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 
 # --- 先把 src/ 放上 sys.path，再 import 本项目的模块 -------------------------
 # alembic.ini 的 prepend_sys_path 做了同样的事；这里再兜一次，
@@ -43,8 +44,8 @@ from personal_assistant.paths import ENV_PATH  # noqa: E402
 # 必须在读 DATABASE_URL 之前执行（uv run 自己也会读 .env，这里是幂等的双保险）
 load_dotenv(ENV_PATH, override=False)
 
-from personal_assistant.database import Base  # noqa: E402
 import personal_assistant.models  # noqa: E402,F401  —— 不 import 就没有表可比
+from personal_assistant.database import Base  # noqa: E402
 
 config = context.config
 
@@ -57,9 +58,7 @@ target_metadata = Base.metadata
 def _database_url() -> str:
     """本次迁移要连的库。"""
     url = (
-        os.getenv("MIGRATION_DATABASE_URL")
-        or os.getenv("DATABASE_URL")
-        or ""
+        os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
     ).strip()
 
     if not url:  # 兜底：应用模块自己算出来的值

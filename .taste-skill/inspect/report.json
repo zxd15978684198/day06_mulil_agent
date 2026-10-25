@@ -1,0 +1,567 @@
+{
+ "url": "E:\\projects\\mutil_agent\\docs\\plans\\前端改版_缩略图.html",
+ "at": "2026-10-25T14:19:44.386Z",
+ "allow": [],
+ "viewports": [
+  {
+   "width": 1440,
+   "height": 900,
+   "load": "load",
+   "screens": 8,
+   "filled": [
+    0.65,
+    0.78,
+    0.78,
+    0.78,
+    0.78,
+    0.78,
+    0.73,
+    0.56
+   ],
+   "motion": {
+    "elements": 0,
+    "css": 0,
+    "transitions": 0,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "page": {
+     "height": 6567,
+     "screens": 7.3,
+     "words": 366,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 6,
+     "sections": 0,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "前端改版 · 页面缩略图",
+     "words": 3,
+     "chars": 12,
+     "lines": 1,
+     "size": 26,
+     "vw": 1.8,
+     "font": "ui-sans-serif",
+     "weight": 600,
+     "tracking": 0,
+     "leading": 1.2,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "center",
+     "widthRatio": 0.83,
+     "top": 40,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "前端改版 · 页面缩略图",
+     "words": 3,
+     "lines": 1,
+     "size": 26,
+     "font": "ui-sans-serif"
+    },
+    "headings": [],
+    "headingSummary": {
+     "count": 0,
+     "maxLines": 0,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": null,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "ui-sans-serif",
+       "share": 0.81,
+       "mono": false
+      },
+      {
+       "family": "monospace",
+       "share": 0.12,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.07,
+       "mono": false
+      }
+     ],
+     "familyCount": 3,
+     "sizes": [
+      13,
+      14,
+      20,
+      26
+     ],
+     "sizeCount": 4,
+     "notLoaded": [],
+     "body": {
+      "font": "ui-sans-serif",
+      "size": 13,
+      "leading": 1.7,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 10.9
+     },
+     "measureChars": 175,
+     "max": {
+      "size": 26,
+      "vw": 1.8,
+      "font": "ui-sans-serif",
+      "text": "前端改版 · 页面缩略图"
+     },
+     "monoShare": 0.19,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace",
+      "monospace"
+     ],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0,
+     "smallText": 0
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#0b0c0e",
+     "bodyBgHsl": {
+      "h": 220,
+      "s": 0.12,
+      "l": 0.05
+     },
+     "dark": true,
+     "sectionBgs": [
+      {
+       "color": "#131417",
+       "top": 301,
+       "hsl": {
+        "h": 225,
+        "s": 0.1,
+        "l": 0.08
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#b9bec7",
+       "share": 0.76
+      },
+      {
+       "color": "#f7f8f8",
+       "share": 0.12
+      },
+      {
+       "color": "#e2c86b",
+       "share": 0.09
+      },
+      {
+       "color": "#6f747c",
+       "share": 0.02
+      }
+     ],
+     "button": null,
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 0,
+     "inHero": 0,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": []
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 6,
+     "hairlineSamples": [
+      "figcaption 1198px",
+      "figcaption 1198px",
+      "figcaption 1198px",
+      "figcaption 1198px",
+      "figcaption 1198px"
+     ],
+     "outlinedBoxes": 6,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 6,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 6,
+       "iconTopped": false,
+       "rounded": true,
+       "top": 301
+      }
+     ]
+    },
+    "heroMedia": [
+     {
+      "type": "svg",
+      "ratio": 0.55
+     }
+    ],
+    "nav": {
+     "links": 0,
+     "fixed": false,
+     "height": 221,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": []
+   },
+   "layout": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "pageH": 6567,
+    "margins": {
+     "left": 120,
+     "right": 121
+    },
+    "sections": [
+     {
+      "sel": "header.doc",
+      "tag": "header",
+      "top": 40,
+      "height": 221,
+      "words": 28,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "前端改版 · 页面缩略图",
+       "size": 26,
+       "tag": "h1"
+      },
+      "left": 120,
+      "right": 138,
+      "textLeft": 120,
+      "textRight": 138,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 301,
+      "height": 929,
+      "words": 38,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 509,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 1286,
+      "height": 929,
+      "words": 30,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 268,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 2271,
+      "height": 957,
+      "words": 30,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 542,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 3284,
+      "height": 957,
+      "words": 30,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 599,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 4296,
+      "height": 929,
+      "words": 26,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 437,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "figure",
+      "tag": "figure",
+      "top": 5282,
+      "height": 929,
+      "words": 20,
+      "media": 1,
+      "middle": 0,
+      "heading": null,
+      "left": 121,
+      "right": 121,
+      "textLeft": 141,
+      "textRight": 500,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "header.doc",
+      "tag": "header",
+      "top": 6267,
+      "height": 164,
+      "words": 19,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "这六张图要你确认的三件事",
+       "size": 20,
+       "tag": "h1"
+      },
+      "left": 120,
+      "right": 582,
+      "textLeft": 120,
+      "textRight": 582,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "前端改版 · 页面缩略图",
+      "size": 26,
+      "top": 40,
+      "firstScreen": true
+     },
+     {
+      "text": "这六张图要你确认的三件事",
+      "size": 20,
+      "top": 6267,
+      "firstScreen": false
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 120,
+      "n": 2
+     }
+    ],
+    "leftBlocks": 2,
+    "bodySize": 13,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0.07,
+    "voidBox": {
+     "x": 0,
+     "y": 120,
+     "w": 120,
+     "h": 780
+    }
+   },
+   "app": null,
+   "consoleErrors": []
+  }
+ ],
+ "findings": [
+  {
+   "level": "FAIL",
+   "id": "hairline",
+   "width": 1440,
+   "message": "6 thin rule(s)/divider line(s): figcaption 1198px | figcaption 1198px | figcaption 1198px | figcaption 1198px",
+   "fix": "Delete. Separate with space, a tone change, or scale. Lines are only for real tables and form fields."
+  },
+  {
+   "level": "FAIL",
+   "id": "outlined-box",
+   "width": 1440,
+   "message": "6 boxes drawn with a 1px outline.",
+   "fix": "Define a surface by its fill (one tone step from the page) or leave the content unboxed."
+  },
+  {
+   "level": "WARN",
+   "id": "font-count",
+   "width": 1440,
+   "message": "3 typefaces in use (ui-sans-serif, monospace, ui-monospace).",
+   "fix": "Two at most."
+  },
+  {
+   "level": "FAIL",
+   "id": "body-size",
+   "width": 1440,
+   "message": "Body text is 13px (the size most of the running text is set in).",
+   "fix": "Body copy 16–20px. Map small sizes from blueprints onto your body step."
+  },
+  {
+   "level": "WARN",
+   "id": "first-action",
+   "width": 1440,
+   "message": "No visible button in the first screen.",
+   "fix": "Give the one primary action a real button in the first screen (a filled or solid-bordered control, 44px or taller), not only a link in the navigation."
+  },
+  {
+   "level": "FAIL",
+   "id": "few-pictures",
+   "width": 1440,
+   "message": "Only 0 picture(s) on the page (0 photographs, footage or raster images, 0 interface fragments). Drawings in SVG do not count.",
+   "fix": "Find real pictures of the subject's world with scripts/assets.mjs (photographs, archival images, maps, engravings, footage), download them to assets/ and give them room: a hero picture, one per section that has a subject, a full-width band. At least four, usually six to twelve."
+  },
+  {
+   "level": "WARN",
+   "id": "no-footage",
+   "width": 1440,
+   "message": "No video anywhere on the page.",
+   "fix": "Look for one honest clip with scripts/assets.mjs --video (the place, the material, the process) and use it as a muted loop with a poster frame. Defend its absence only if no clip fits the subject."
+  },
+  {
+   "level": "WARN",
+   "id": "measure",
+   "width": 1440,
+   "message": "Longest paragraph runs about 175 characters per line.",
+   "fix": "Cap paragraphs at 45–75 characters (max-width: 60ch)."
+  },
+  {
+   "level": "WARN",
+   "id": "small-title",
+   "width": 1440,
+   "message": "The h1 is 26px (\"前端改版 · 页面缩略图\").",
+   "fix": "Set the title at display size, or make the large text of the first screen the h1."
+  },
+  {
+   "level": "WARN",
+   "id": "name-only-title",
+   "width": 1440,
+   "message": "The h1 is a bare name (\"前端改版 · 页面缩略图\") and nothing else on the first screen says what this is.",
+   "fix": "Keep the name if it leads, and give the line under it (18px or more) the plain words: what it is, for whom, where or when. In the study of 97 Sites of the Day, first screens that named nothing lost usability and content points."
+  },
+  {
+   "level": "WARN",
+   "id": "many-h1",
+   "width": 1440,
+   "message": "2 h1 elements.",
+   "fix": "One h1 per page; section titles are h2."
+  },
+  {
+   "level": "FAIL",
+   "id": "untitled-section",
+   "width": 1440,
+   "message": "3 sections carry text but no heading: figure at 1286px (30 words); figure at 2271px (30 words); figure at 3284px (30 words)",
+   "fix": "Give each section a short heading that names what it holds (the menu, the rooms, how it works, the price), in the heading face at the section size."
+  },
+  {
+   "level": "FAIL",
+   "id": "still-page",
+   "width": 1440,
+   "message": "Only 0 element(s) moved while the page loaded and scrolled.",
+   "fix": "Build the motion layer (SKILL.md step 9, references/motion.md): the signature move, an entrance for the parts of every section, feedback on every control, and one moving picture. Transform and opacity only, with a reduced-motion fallback."
+  }
+ ],
+ "images": [
+  {
+   "viewport": "desktop",
+   "width": 1440,
+   "fold": "E:\\projects\\mutil_agent\\.taste-skill\\inspect\\desktop-fold.jpg",
+   "pages": [
+    "E:\\projects\\mutil_agent\\.taste-skill\\inspect\\desktop-page-01.jpg",
+    "E:\\projects\\mutil_agent\\.taste-skill\\inspect\\desktop-page-02.jpg"
+   ],
+   "film": []
+  }
+ ]
+}

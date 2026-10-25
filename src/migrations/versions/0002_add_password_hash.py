@@ -6,6 +6,7 @@ Create Date: 2026-10-14
 
 薄壳：SQL 本体在 src/migrations/sql/V001__add_users_password_hash.sql
 """
+
 from __future__ import annotations
 
 import sys

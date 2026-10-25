@@ -34,7 +34,8 @@ def main() -> None:
                 extra += f"  vision_error={provenance['vision_error'][:60]}"
         print(
             f"  · {item['document_id']}  {item['parser_mode_actual']}  "
-            f"{item['chunk_count']} chunk  机器识别={item['is_machine_extracted']}{extra}"
+            f"{item['chunk_count']} chunk  "
+            f"机器识别={item['is_machine_extracted']}{extra}"
         )
 
     # K7：解析失败的文档不静默丢弃，在这里如实打印（课件 §5.4 版本没有这一段）。

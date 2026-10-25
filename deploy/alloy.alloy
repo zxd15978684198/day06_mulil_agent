@@ -1,0 +1,22 @@
+// Grafana Alloy：把应用 stdout（systemd journal）送到 Loki。
+//
+// 启动示例：
+//   alloy run deploy/alloy.alloy
+//
+// 应用必须由 systemd 托管，stdout 才会进 journald。若应用不是 systemd 服务：
+//   * Docker：把 loki.source.journal 换成 loki.source.docker；
+//   * 普通进程 + 文件：把输入换成 loki.source.file（但应用本身不写日志文件）。
+//
+// 不要同时启用 OTel Logs SDK，否则 Loki 会收到两份日志。
+
+loki.source.journal "agent" {
+  matches    = "_SYSTEMD_UNIT=employee-agent.service"
+  labels     = { service = "employee-agent", env = "production" }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}

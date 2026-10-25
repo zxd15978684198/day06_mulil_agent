@@ -1,0 +1,43 @@
+# Loki 单机模式（Windows 本地联调，无 Docker/无服务器）。
+# 在仓库根运行：
+#   loki -config.file=deploy/loki.local.yaml
+#
+# 数据目录是相对仓库根的 runtime/loki；先创建：
+#   mkdir -p runtime/loki
+#
+# 如果下载的 Loki 版本没有 Windows 发行版，用 WSL 运行本文件，或先只联调 Trace/Metrics。
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: runtime/loki
+  storage:
+    filesystem:
+      chunks_directory: runtime/loki/chunks
+      rules_directory: runtime/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h   # 本地 7 天；生产改 720h
+
+compactor:
+  working_directory: runtime/loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true

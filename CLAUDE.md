@@ -19,7 +19,7 @@ This is the **Day06 project scaffold** for a Chinese-language LangChain/LangGrap
 
 `konwledge_base.py` is an empty, misspelled stub. The courseware module is **`knowledge_base`** — create that name and delete the typo.
 
-`docs/Day06_多Agent综合项目：新员工助手升级.md` is the authoritative spec (architecture, exact code for `multi_agent.py`/`main.py`, fixed acceptance scenarios, troubleshooting table). `docs/Day05_综合案例：新员工助手Agent.md` holds the single-agent baseline, permission matrix, and the JSON field reference (附录 A). Read them before implementing.
+`docs/参考文档/Day06_多Agent综合项目：新员工助手升级.md` is the authoritative spec (architecture, exact code for `multi_agent.py`/`main.py`, fixed acceptance scenarios, troubleshooting table). `docs/参考文档/Day05_综合案例：新员工助手Agent.md` holds the single-agent baseline, permission matrix, and the JSON field reference (附录 A). Read them before implementing.
 
 The courseware states explicitly that nothing here has been verified to run — no dependency imports, index build, agent invocation, thread resumption, or acceptance run has been performed (§16.2). Do not claim otherwise without actually running it.
 
@@ -31,7 +31,7 @@ python build_index.py                # must run before main.py; writes vector_st
 python main.py                       # interactive CLI
 ```
 
-There is no test suite, no linter config, and no CI. Verification is by the fixed acceptance scenarios in Day06 §12.1: check the Supervisor's Agent-Tool calls, the specialists' business-Tool calls, the final answer, **and** the actual state of the `device_requests` table (`src/test/acceptance_day06.py --only …`) — all four must agree. The `src/data/*.json` files are historical baselines only.
+Tests live in `tests/` (`uv run pytest tests/`); the acceptance scenarios are in `tests/acceptance_day06.py`. Verification is by the fixed scenarios in Day06 §12.1: check the Supervisor's Agent-Tool calls, the specialists' business-Tool calls, the final answer, **and** the actual state of the `device_requests` table (`tests/acceptance_day06.py --only …`) — all four must agree. The `src/data/*.json` files are historical baselines only.
 
 CLI verbs: `/logout` switches accounts (new `RunContext`, new Supervisor, new `thread_id`), `/quit` exits. Write operations print an `interrupt()` payload and prompt `y`/`n`.
 
@@ -74,7 +74,7 @@ The Supervisor must **rewrite** the task before delegating — resolve pronouns 
 - **Filter knowledge at retrieval time**, not after. Once unauthorized text reaches the model context, the boundary is already crossed. Use `allowed_roles` — `access_scope` is display-only, and directory names carry no authority.
 - **Never wrap an Agent Tool in a broad `try/except`.** Inner write tools suspend with LangGraph `interrupt()`; catching that signal breaks human confirmation and resumption. `Command(resume={"approved": ...})` must reuse the original `thread_id` and context.
 - **`chat()` submits only the new turn.** The checkpointer replays history from `thread_id`; re-sending prior messages duplicates the conversation.
-- **Only the `device_requests` table is mutated.** Everything under `knowledge/` and the other JSON baselines are read-only. Test suites back up and restore that table automatically via `src/tests`.
+- **Only the `device_requests` table is mutated.** Everything under `knowledge/` and the other JSON baselines are read-only. Test suites back up and restore that table automatically via `tests`.
 - **Keep the `day05_` filename prefixes.** They look stale but are intentional — the course reuses Week14/Day05 artifacts verbatim.
 
 ## Data and knowledge contracts

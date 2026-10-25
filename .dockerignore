@@ -1,0 +1,54 @@
+# 构建上下文过滤。目标：只把「构建镜像真正需要的东西」发进 docker daemon。
+# 本仓库根目录混了大量临时产物（backups/、blind02_*/、scripts/_d*.py），
+# 不过滤的话上下文会有几百 MB。
+
+# --- 密钥：绝不进镜像 ---------------------------------------------------------
+# 运行期的密钥一律由 compose 的 env_file / environment 注入
+.env
+.env.*
+!.env.example
+
+# --- 版本控制与 IDE ----------------------------------------------------------
+.git
+.gitignore
+.idea
+.vscode
+.pytest_cache/
+.postman/
+postman/
+
+# --- Python 环境与缓存 -------------------------------------------------------
+.venv
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# --- 前端依赖：镜像里由 npm ci 重新装 ----------------------------------------
+frontend/node_modules/
+frontend/dist/
+
+# --- 运行期产物：容器里靠挂卷，不进镜像 --------------------------------------
+# 注意：**不能**在这里写 `*.sqlite3`，src/vector_store/chroma.sqlite3 是索引本体
+runtime/
+.tmp/
+torchinductor_*/
+
+# --- 构建时用不到的目录 ------------------------------------------------------
+docs/
+exercise/
+backups/
+acl-recovery/
+blind02_*/
+clear/
+v4-*/
+scripts/
+
+# --- Docker 自身与说明文件 ---------------------------------------------------
+Dockerfile
+.dockerignore
+docker-compose*.yml
+README.md
+CLAUDE.md
+alembic.ini.bak

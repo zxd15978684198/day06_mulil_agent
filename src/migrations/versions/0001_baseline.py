@@ -20,6 +20,7 @@ Create Date: 2026-10-14
 ⚠️ 不要在这里写 CREATE TABLE —— 表已经存在，会撞
    (1050, "Table 'users' already exists")。
 """
+
 from __future__ import annotations
 
 import sys

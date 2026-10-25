@@ -10,9 +10,11 @@
 设计要点（Day06 执行计划 v2 §4.1）：
 
 * 解析路径**按清单的 `parser_mode` 分流**，不用一个通用 Loader 硬套十份文件；
-* 权限只读清单的 `allowed_roles`，**不从目录名 `public/` `hr/` 推断**；
+* 权限只读清单的 `allowed_roles`，
+  **不从目录名 `public/` `hr/` 推断**；
 * Chroma 元数据只接受标量，因此 `allowed_roles` 展开成 `allow_employee` / `allow_hr`
-  两个布尔字段（K2），检索时用 `where={"allow_<role>": True}`，缺键即被排除（fail-closed）；
+  两个布尔字段（K2），检索时用
+  `where={"allow_<role>": True}`，缺键即被排除（fail-closed）；
 * 解析失败**不静默丢弃**，记入索引清单的 `failures`（K7）。
 """
 
@@ -23,27 +25,33 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Literal, cast
 
 from dotenv import load_dotenv
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
+from .metrics import record_rag
 from .paths import ENV_PATH, KNOWLEDGE_DIR, PROJECT_ROOT, VECTOR_STORE_DIR
+from .structured_logging import log_event, runtime_request_ids, safe_error
 
 # 必须在导入 huggingface_hub / sentence-transformers 之前加载 .env：
 # huggingface_hub 在 import 时读取 HF_ENDPOINT，晚设置就不生效了。
 load_dotenv(ENV_PATH, override=False)
 
+from langchain.tools import ToolRuntime, tool  # noqa: E402
 from langchain_chroma import Chroma  # noqa: E402
 from langchain_core.documents import Document  # noqa: E402
-from langchain_huggingface import HuggingFaceEmbeddings  # noqa: E402
-from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: E402
-from langchain.tools import ToolRuntime, tool  # noqa: E402
 from langchain_core.messages import AIMessage  # noqa: E402
 from langchain_deepseek import ChatDeepSeek  # noqa: E402
+from langchain_huggingface import HuggingFaceEmbeddings  # noqa: E402
+from langchain_text_splitters import RecursiveCharacterTextSplitter  # noqa: E402
 
 # --------------------------------------------------------------------------
 # 路径与常量
@@ -66,7 +74,7 @@ CHUNK_SIZE = 600
 CHUNK_OVERLAP = 120
 CHINESE_SEPARATORS = ["\n\n", "\n", "。", "；", "！", "？", "，", " ", ""]
 # 中文用 "end"：句号留在上一块末尾，而不是跑到下一块开头
-KEEP_SEPARATOR: str = "end"
+KEEP_SEPARATOR: Literal["start", "end"] = "end"
 
 # 支持过滤的角色（RunContext 只会产生这两个值）
 FILTERABLE_ROLES = ("employee", "hr")
@@ -81,8 +89,9 @@ OCR_RENDER_SCALE = 2.0
 
 # 视觉模型提示词：导览图要求方位关系（K5），海报要求分组与颜色语义。
 # 两条都要求"只依据图中实际可见内容"，避免模型补充图中没有的设施。
-MAP_VISION_PROMPT = """你在为一份办公区导览图生成可检索的文字说明。请只依据图中**实际可见**的内容作答，
-不要推测、不要补充图中没有的设施。按下面四条逐条列出，每条用短句：
+MAP_VISION_PROMPT = """你在为一份办公区导览图生成可检索的文字说明。
+请只依据图中**实际可见**的内容作答，不要推测、不要补充图中没有的设施。
+按下面四条逐条列出，每条用短句：
 
 1. 图中出现的全部文字标签（逐个列出）；
 2. 各区域之间的相对方位关系，用"东/西/南/北"或"左/右/上/下"明确表述，
@@ -92,8 +101,9 @@ MAP_VISION_PROMPT = """你在为一份办公区导览图生成可检索的文字
 
 最后单独一行写明"上方为北"。"""
 
-POSTER_VISION_PROMPT = """你在为公司内部宣传海报生成可检索的文字说明。请只依据图中**实际可见**的内容作答，
-不要推测、不要补充图中没有的内容。按下面四条逐条列出：
+POSTER_VISION_PROMPT = """你在为公司内部宣传海报生成可检索的文字说明。
+请只依据图中**实际可见**的内容作答，不要推测、不要补充图中没有的内容。
+按下面四条逐条列出：
 
 1. 海报标题与全部可见文字（按版面顺序逐个列出，保留编号）；
 2. 编号条目及其各自的分点内容（每条编号下有几个要点，分别是什么）；
@@ -400,8 +410,11 @@ def _join_line(parts: list[tuple[float, float, str]]) -> str:
             out = text
             continue
         prev, nxt = out[-1], text[0]
-        cjk = lambda ch: "\u3000" <= ch <= "\u9fff"  # noqa: E731
-        out += "" if (cjk(prev) and cjk(nxt)) else " "
+
+        def _is_cjk(ch: str) -> bool:
+            return "\u3000" <= ch <= "\u9fff"
+
+        out += "" if (_is_cjk(prev) and _is_cjk(nxt)) else " "
         out += text
     return out
 
@@ -553,7 +566,13 @@ class ChatReasoningEcho(ChatDeepSeek):
     真实知识 Agent 连跑 6 次无报错，且推理 token > 0（**thinking 能力未被牺牲**）。
     """
 
-    def _get_request_payload(self, input_, *, stop=None, **kwargs):  # type: ignore[override]
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
         try:
             messages = self._convert_input(input_).to_messages()
@@ -566,16 +585,18 @@ class ChatReasoningEcho(ChatDeepSeek):
                 continue
             if index >= len(assistants):
                 break
-            reasoning = (getattr(assistants[index], "additional_kwargs", None) or {}).get(
-                "reasoning_content"
-            )
+            reasoning = (
+                getattr(assistants[index], "additional_kwargs", None) or {}
+            ).get("reasoning_content")
             if reasoning:
                 item["reasoning_content"] = reasoning
             index += 1
         return payload
 
 
-def build_chat_model(prefix: str = "", session_id: str | None = None) -> tuple[Any, str, str]:
+def build_chat_model(
+    prefix: str = "", session_id: str | None = None
+) -> tuple[Any, str, str]:
     """按配置构造模型，返回 `(model, model_name, source)`。
 
     用 `ChatReasoningEcho` 构造而不是 `init_chat_model`：网关在 thinking 模式下要求
@@ -583,13 +604,13 @@ def build_chat_model(prefix: str = "", session_id: str | None = None) -> tuple[A
     只是不参与构造 —— `ChatReasoningEcho` 本身是 OpenAI 兼容客户端。
     """
     _provider, name, source = resolve_model_config(prefix)
-    model = ChatReasoningEcho(model=name, **build_model_options(prefix, session_id=session_id))
+    model = ChatReasoningEcho(
+        model=name, **build_model_options(prefix, session_id=session_id)
+    )
     return model, name, source
 
 
-def _describe_image(
-    path: Path, prompt: str, mode_label: str
-) -> ParsedDocument:
+def _describe_image(path: Path, prompt: str, mode_label: str) -> ParsedDocument:
     """把图片交给多模态接口，生成可检索的文字说明（K5）。"""
     import base64
 
@@ -839,7 +860,9 @@ def build_vector_store() -> dict[str, Any]:
                 }
             )
         except Exception as exc:  # noqa: BLE001 —— 单份失败不阻断其余文档（K7）
-            print(f"[解析]   -> 失败 {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+            print(
+                f"[解析]   -> 失败 {type(exc).__name__}: {str(exc)[:120]}", flush=True
+            )
             failures.append(
                 {
                     "path": relative,
@@ -857,7 +880,10 @@ def build_vector_store() -> dict[str, Any]:
         )
 
     embeddings, embedding_model = _build_embeddings()
-    print(f"[向量化] {len(documents)} 个 chunk 写入 Chroma（{embedding_model}）...", flush=True)
+    print(
+        f"[向量化] {len(documents)} 个 chunk 写入 Chroma（{embedding_model}）...",
+        flush=True,
+    )
 
     # H1（评审提出）：换过 EMBEDDING_MODEL 后如果忘了重建，检索会静默用错向量空间 ——
     # 查询向量与库内向量不同源，相似度毫无意义，但**不会报任何错**。这里显式告警。
@@ -917,9 +943,10 @@ SEARCH_K = 5
 # 向量库句柄缓存：Embedding 模型加载较慢，一次会话内复用。
 # 注意这是**只读索引**（不是 B3 所说的业务 JSON），重建索引后需新进程才生效。
 _vector_store_cache: Chroma | None = None
-# 并发修复（本次性能优化）：预热线程与首个请求可能同时进 `_open_vector_store()`。
-# 没有锁时两边会各自加载一次 embedding 模型（实测冷启动 22.97s）并各建一个 Chroma 客户端，
-# 后赋值的覆盖先赋值的 —— 结果只是浪费，但"预热"的意义正是**只付一次**。
+# 并发修复（本次性能优化）：预热线程与首个请求可能同时进
+# `_open_vector_store()`。没有锁时两边会各自加载一次 embedding 模型
+# （实测冷启动 22.97s）并各建一个 Chroma 客户端，后赋值的覆盖先赋值的
+# —— 结果只是浪费，但"预热"的意义正是**只付一次**。
 _vector_store_lock = threading.Lock()
 
 
@@ -927,8 +954,9 @@ def _open_vector_store() -> Chroma:
     """打开只读的 Chroma 索引（懒加载并复用）。
 
     **空库必须报错，不能静默**（D1，阶段 6 评审提出）：`Chroma(...)` 的
-    `create_collection_if_not_exists` 默认为 `True`（实测确认），所以当索引目录被清空、
-    而 `index_manifest.json` 恰好还在时，它会**悄悄建一个空 collection** —— 检索返回 0 条
+    `create_collection_if_not_exists` 默认为 `True`（实测确认），
+    所以当索引目录被清空、而 `index_manifest.json` 恰好还在时，
+    它会**悄悄建一个空 collection** —— 检索返回 0 条
     却看起来"运行正常"，用户会以为"知识库里没这条资料"，而不是"索引没建好"。
     这里显式检查 chunk 数：为 0 直接报错；与 manifest 不一致则告警但不中止
     （允许手工调过索引的场景）。
@@ -956,8 +984,9 @@ def _open_vector_store() -> Chroma:
         expected = _manifest_chunk_count()
         if expected is not None and expected != count:
             print(
-                f"[索引] 警告：collection 内 chunk 数 {count} 与 index_manifest.json 的 "
-                f"{expected} 不一致 —— 索引可能不是最新，建议重建。"
+                f"[索引] 警告：collection 内 chunk 数 {count} 与 "
+                f"index_manifest.json 的 {expected} 不一致 "
+                f"—— 索引可能不是最新，建议重建。"
             )
         _vector_store_cache = store
         return _vector_store_cache
@@ -988,7 +1017,9 @@ def warm_up_vector_store() -> tuple[bool, str]:
 def _manifest_chunk_count() -> int | None:
     """读 `index_manifest.json` 里的 chunk 数；读不到返回 None（不阻断检索）。"""
     try:
-        return int(json.loads(INDEX_MANIFEST_PATH.read_text(encoding="utf-8"))["chunk_count"])
+        return int(
+            json.loads(INDEX_MANIFEST_PATH.read_text(encoding="utf-8"))["chunk_count"]
+        )
     except Exception:  # noqa: BLE001
         return None
 
@@ -997,7 +1028,8 @@ def _warn_embedding_model_changed(current_model: str) -> None:
     """H1：对比现有索引记录的 embedding 模型与本次要用的，不一致就**显式告警**。
 
     为什么要告警：查询向量与库内向量必须来自同一个模型，否则相似度没有意义；
-    而换了 `EMBEDDING_MODEL` 却忘记重建时，系统**不会报错**，只会给出毫无依据的检索结果。
+    而换了 `EMBEDDING_MODEL` 却忘记重建时，系统**不会报错**，
+    只会给出毫无依据的检索结果。
     这里只在重建时提示（重建本身会覆盖索引，所以只是提醒"你正在换模型"）。
     """
     try:
@@ -1008,8 +1040,10 @@ def _warn_embedding_model_changed(current_model: str) -> None:
         return
     if recorded and recorded != current_model:
         print(
-            f"[向量化] 注意：现有索引用的是 {recorded}，本次将改用 {current_model}。\n"
-            f"         重建会整体覆盖索引，旧向量作废；若有其他程序/脚本按旧模型查询，请一并更新。"
+            f"[向量化] 注意：现有索引用的是 {recorded}，"
+            f"本次将改用 {current_model}。\n"
+            f"         重建会整体覆盖索引，旧向量作废；"
+            f"若有其他程序/脚本按旧模型查询，请一并更新。"
         )
 
 
@@ -1037,9 +1071,16 @@ def search_knowledge(query: str, runtime: ToolRuntime) -> str:
     """
     context = getattr(runtime, "context", None)
     role = str(getattr(context, "role", "") or "").strip()
+    ids = runtime_request_ids(runtime)
 
     # 身份只来自 Runtime Context（B2）；角色不在已知集合内一律拒绝
     if role not in FILTERABLE_ROLES:
+        log_event(
+            "rag.denied",
+            **ids,
+            outcome="denied",
+            role=role,
+        )
         return json.dumps(
             {
                 "ok": False,
@@ -1051,23 +1092,82 @@ def search_knowledge(query: str, runtime: ToolRuntime) -> str:
 
     query = (query or "").strip()
     if not query:
+        log_event(
+            "rag.invalid_argument",
+            **ids,
+            outcome="invalid_argument",
+            role=role,
+        )
         return json.dumps(
             {"ok": False, "error": "invalid_argument", "message": "query 不能为空"},
             ensure_ascii=False,
         )
 
-    # K2 + K8：按角色在**检索阶段**过滤；缺该键的 chunk 不会进入候选集
-    hits = _open_vector_store().similarity_search_with_score(
-        query, k=SEARCH_K, filter={f"allow_{role}": True}
-    )
-    if not hits:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": "no_evidence",
-                "message": "当前知识库中没有可依据的资料，无法确认该问题",
-            },
-            ensure_ascii=False,
+    # K2 + K8：按角色在**检索阶段**过滤；缺该键的 chunk 不会进入候选集。
+    # 只记录命中数/角色/K，不记录 query 和 chunk 原文。
+    started = time.perf_counter()
+    tracer = trace.get_tracer("personal_assistant.knowledge")
+    with tracer.start_as_current_span(
+        "rag.search",
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        span.set_attribute("db.system.name", "chroma")
+        span.set_attribute("rag.k", SEARCH_K)
+        span.set_attribute("rag.role", role)
+        try:
+            hits = _open_vector_store().similarity_search_with_score(
+                query,
+                k=SEARCH_K,
+                filter=cast(dict[str, Any], {f"allow_{role}": True}),
+            )
+        except Exception as exc:  # noqa: BLE001 —— 记录后原样抛出
+            error_info = safe_error(exc)
+            span.set_attribute("rag.outcome", "error")
+            span.set_attribute("error.type", error_info["error_type"])
+            span.set_attribute("error.message", error_info["error_message_safe"])
+            span.set_status(Status(StatusCode.ERROR))
+            record_rag(
+                outcome="failed",
+                duration_ms=round((time.perf_counter() - started) * 1000, 1),
+            )
+            log_event(
+                "rag.search.failed",
+                **ids,
+                outcome="failed",
+                role=role,
+                **error_info,
+            )
+            raise
+        span.set_attribute("rag.hit_count", len(hits))
+        span.set_attribute("rag.outcome", "hit" if hits else "no_evidence")
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+
+        if not hits:
+            record_rag(outcome="no_evidence", duration_ms=duration_ms)
+            log_event(
+                "rag.no_evidence",
+                **ids,
+                outcome="no_evidence",
+                role=role,
+                hit_count=0,
+            )
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": "no_evidence",
+                    "message": "当前知识库中没有可依据的资料，无法确认该问题",
+                },
+                ensure_ascii=False,
+            )
+
+        record_rag(outcome="hit", duration_ms=duration_ms)
+        log_event(
+            "rag.search.finished",
+            **ids,
+            outcome="hit",
+            role=role,
+            hit_count=len(hits),
         )
 
     evidence = [

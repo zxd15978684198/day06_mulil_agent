@@ -6,13 +6,13 @@
 > ⚠️ **持久化升级后（2026-10）的执行说明 —— 先读这一段**
 >
 > 设备申请与审批的写入已从 `src/data/day05_device_requests.json` 换到 **MySQL
-> `agent_service.device_requests` 表**（见 `docs/状态持久化升级计划.md`）。因此下面各流程文档里
+> `agent_service.device_requests` 表**（见 `docs/plans/状态持久化升级计划.md`）。因此下面各流程文档里
 > 凡出现 `Copy-Item .tmp/... src/data/day05_device_requests.json -Force` 的**还原步骤都已失效**：
 > 它不再还原数据（那份 JSON 已不是写目标），跑完只会在库里留下脏数据。
 >
 > 正确做法：
 >
-> * **备份 / 还原**改用测试侧工具 `../../src/tests`：
+> * **备份 / 还原**改用测试侧工具 `../../tests`：
 >   ```
 >   uv run python -c "import sys; from pathlib import Path; sys.path[:0]=['src','src/test']; import db_state; print(db_state.load_requests_backup(Path('.tmp/day05_device_requests.backup.json')))"
 >   ```

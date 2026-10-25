@@ -1,0 +1,90 @@
+# OpenTelemetry Collector（单文件二进制）配置。
+#
+# 数据流：
+#   应用 --OTLP/HTTP :4318--> Collector --+--> Langfuse Cloud EU（Trace）
+#                                          +--> prometheus exporter :8889 <-- Prometheus 拉取
+#
+# 日志不经过 Collector：应用只写 stdout，由 Grafana Alloy 采集后送 Loki。
+#
+# 启动（Linux 示例）：
+#   set -a; . deploy/otel-collector.env; set +a
+#   otelcol-contrib --config=deploy/otel-collector.yaml
+#
+# 注意：`tail_sampling` 只在 collector-contrib 发行版里；core 发行版请删除该
+# processor，并把应用的 OTEL_TRACES_SAMPLER_ARG 改为 0.1。
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  # 保留错误与慢请求，其余按 10% 采样。应用侧应 100% 送 Collector，
+  # 否则被 head sampling 丢掉的数据这里看不到。
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 5000
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  # 二层脱敏：应用侧默认不采集原文，这里再删一次已知敏感键，防止插桩版本变化。
+  attributes/redact:
+    actions:
+      - key: gen_ai.prompt
+        action: delete
+      - key: gen_ai.completion
+        action: delete
+      - key: langfuse.observation.input
+        action: delete
+      - key: langfuse.observation.output
+        action: delete
+      - key: db.statement
+        action: delete
+
+exporters:
+  otlphttp/langfuse:
+    endpoint: ${env:LANGFUSE_OTLP_ENDPOINT}
+    headers:
+      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
+      x-langfuse-ingestion-version: "${env:LANGFUSE_INGESTION_VERSION}"
+    timeout: 10s
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, attributes/redact, batch]
+      exporters: [otlphttp/langfuse]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

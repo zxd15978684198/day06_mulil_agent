@@ -1,0 +1,15 @@
+# Prometheus 抓取 Collector 的 prometheus exporter。
+# 启动示例：
+#   prometheus --config.file=deploy/prometheus.yml \
+#              --storage.tsdb.retention.time=30d
+#
+# Collector 与应用不在同一台机器时，把 targets 改成 Collector 的主机名/IP。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["127.0.0.1:8889"]
