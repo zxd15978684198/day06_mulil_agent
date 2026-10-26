@@ -86,8 +86,14 @@ def _check_path(
     relative: Any,
     where: str,
     errors: list[str],
+    *,
+    allow_missing: bool = False,
 ) -> Path | None:
-    """越界/不存在都记为错误；返回可继续检查摘要的路径。"""
+    """越界/不存在都记为错误；返回可继续检查摘要的路径。
+
+    `allow_missing` 只用于可再生成、且不入库的产物（例如向量索引清单）：
+    文件不存在时跳过，而不是把“干净 checkout 没构建产物”当成发布错误。
+    """
 
     try:
         path = safe_join(project_root, relative)
@@ -95,7 +101,8 @@ def _check_path(
         errors.append(f"{where}: {exc}")
         return None
     if not path.is_file():
-        errors.append(f"{where}: 文件不存在：{relative}")
+        if not allow_missing:
+            errors.append(f"{where}: 文件不存在：{relative}")
         return None
     return path
 
@@ -294,7 +301,13 @@ def _check_knowledge(project_root: Path, manifest: dict, errors: list[str]) -> N
         )
 
 
-def _check_index(project_root: Path, manifest: dict, errors: list[str]) -> None:
+def _check_index(
+    project_root: Path,
+    manifest: dict,
+    errors: list[str],
+    *,
+    allow_missing: bool = False,
+) -> None:
     index = _require_object(manifest, "index", "顶层", errors)
     if not index:
         return
@@ -305,7 +318,13 @@ def _check_index(project_root: Path, manifest: dict, errors: list[str]) -> None:
         errors,
     )
 
-    index_path = _check_path(project_root, index.get("path"), "index.path", errors)
+    index_path = _check_path(
+        project_root,
+        index.get("path"),
+        "index.path",
+        errors,
+        allow_missing=allow_missing,
+    )
     if index_path is None:
         return
     _check_hash(index_path, index.get("sha256"), "index.sha256", errors)
@@ -370,8 +389,17 @@ def _check_evaluation(project_root: Path, manifest: dict, errors: list[str]) -> 
 # ---------------------------------------------------------------------------
 
 
-def validate_manifest(project_root: Path, manifest_path: Path) -> list[str]:
-    """返回全部错误；空列表表示通过。"""
+def validate_manifest(
+    project_root: Path,
+    manifest_path: Path,
+    *,
+    allow_missing_index: bool = False,
+) -> list[str]:
+    """返回全部错误；空列表表示通过。
+
+    `allow_missing_index=True` 用于 CI/干净 checkout：向量索引是
+    `build_index.py` 生成物，不入库，缺少它时跳过索引相关校验。
+    """
 
     errors: list[str] = []
 
@@ -428,7 +456,12 @@ def validate_manifest(project_root: Path, manifest_path: Path) -> list[str]:
 
     _check_embedding(manifest, errors)
     _check_knowledge(project_root, manifest, errors)
-    _check_index(project_root, manifest, errors)
+    _check_index(
+        project_root,
+        manifest,
+        errors,
+        allow_missing=allow_missing_index,
+    )
     _check_evaluation(project_root, manifest, errors)
 
     return errors
@@ -452,13 +485,22 @@ def main(argv: list[str] | None = None) -> int:
         default=PROJECT_ROOT,
         help="项目根目录（默认脚本上一级）",
     )
+    parser.add_argument(
+        "--allow-missing-index",
+        action="store_true",
+        help="向量索引未构建时跳过 index 校验（CI/干净 checkout 用）",
+    )
     args = parser.parse_args(argv)
 
     manifest_path = args.manifest
     if not manifest_path.is_absolute():
         manifest_path = args.project_root / manifest_path
 
-    errors = validate_manifest(args.project_root.resolve(), manifest_path)
+    errors = validate_manifest(
+        args.project_root.resolve(),
+        manifest_path,
+        allow_missing_index=args.allow_missing_index,
+    )
     if errors:
         print(f"版本清单校验失败：{len(errors)} 项问题")
         for error in errors:

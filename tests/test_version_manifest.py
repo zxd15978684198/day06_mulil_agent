@@ -15,6 +15,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 MANIFEST_PATH = PROJECT_ROOT / "release" / "agent_versions.json"
+INDEX_MANIFEST_PATH = PROJECT_ROOT / "src" / "vector_store" / "index_manifest.json"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -26,14 +27,30 @@ def manifest() -> dict:
     return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
-def _validate(tmp_path: Path, data: dict) -> list[str]:
+def _validate(
+    tmp_path: Path, data: dict, *, allow_missing_index: bool = False
+) -> list[str]:
     path = tmp_path / "agent_versions.json"
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    return validator.validate_manifest(PROJECT_ROOT, path)
+    return validator.validate_manifest(
+        PROJECT_ROOT, path, allow_missing_index=allow_missing_index
+    )
 
 
+@pytest.mark.skipif(
+    not INDEX_MANIFEST_PATH.is_file(),
+    reason="向量索引未构建；index_manifest.json 由 build_index.py 生成且不入库",
+)
 def test_current_manifest_passes() -> None:
     assert validator.validate_manifest(PROJECT_ROOT, MANIFEST_PATH) == []
+
+
+def test_missing_index_manifest_can_be_allowed(tmp_path: Path, manifest: dict) -> None:
+    manifest["index"]["path"] = "src/vector_store/missing_index_manifest.json"
+
+    errors = _validate(tmp_path, manifest, allow_missing_index=True)
+
+    assert not any("index.path" in error for error in errors)
 
 
 def test_broken_json_is_reported(tmp_path: Path) -> None:

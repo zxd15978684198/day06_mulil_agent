@@ -61,8 +61,12 @@ jobs:
           | xargs -0 uv run --locked detect-secrets-hook
           --baseline .secrets.baseline
 
+      # 向量索引由 build_index.py 生成、不入库；干净 checkout 里没有
+      # src/vector_store/index_manifest.json，跳过 index 相关校验。
       - name: Validate Agent version manifest
-        run: uv run --locked python scripts/validate_version_manifest.py
+        run: >-
+          uv run --locked python scripts/validate_version_manifest.py
+          --allow-missing-index
 
       - name: Prepare reports directory
         run: mkdir -p reports

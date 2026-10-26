@@ -175,8 +175,8 @@
     "version": "acceptance-day06-v1.0",
     "path": "tests/acceptance_day06.py",
     "sha256": "3afa69fcb799ed0a442ed90e01af34f91a72c5220805e8c387eea716a769c233",
-    "spec": "docs/参考文档/Day06_多Agent综合项目：新员工助手升级.md",
-    "spec_sha256": "d5cd466e835376f01c46ad6c33a7330a4b13f615985eed41277b80983843740e",
+    "spec": "tests/README.md",
+    "spec_sha256": "263a51a876672d0959d84d60458fa47869c107194b75e71707687d63fc069ada",
     "scenarios": "Day06 §12.1 固定验收场景（Agent-Tool 调用、业务 Tool 调用、最终答复、device_requests 实际状态）"
   }
 }
